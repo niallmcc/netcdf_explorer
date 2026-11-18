@@ -11,12 +11,11 @@ class Test(unittest.TestCase):
 
     def test_293_api(self):
         path = os.path.join(os.path.split(__file__)[0],"area_293_min.nc")
-        ds = xr.open_dataset(path)
         layers_path = os.path.join(os.path.split(__file__)[0],"example_layers.yaml")
         output_folder = os.path.join(os.path.split(__file__)[0], "area_293_output_api")
         with open(layers_path) as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
-        gen = HTMLGenerator(config=config, input_ds=ds, output_folder=output_folder, title="area 293", download_from=path, filter_controls=True)
+        gen = HTMLGenerator(config=config, input_path=path, output_folder=output_folder, title="area 293", add_download_link=True, filter_controls=True)
         gen.run()
 
     def test_293_commandline(self):

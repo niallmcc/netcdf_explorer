@@ -18,7 +18,7 @@ coordinates:
 
 image:
   grid-width: 250
-  max-zoom": 10
+  max-zoom: 10
 
 info:
   Date: "${str(data[\"time\"].data)[0:19]}"

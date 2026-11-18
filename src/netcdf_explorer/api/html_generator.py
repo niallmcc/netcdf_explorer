@@ -449,14 +449,14 @@ class HTMLGenerator:
                 # timestamp will be formatted YYYY-MM-DDT:HH:MM:SS
                 timestamp = str(self.input_ds[self.time_coordinate].data[i])[:19] if self.time_coordinate else None
                 if timestamp:
-                    if self.min_timestamp is None or timestamp < self.max_timestamp:
+                    if self.min_timestamp is None or timestamp < self.min_timestamp:
                         self.min_timestamp = timestamp
                     if self.max_timestamp is None or timestamp > self.max_timestamp:
                         self.max_timestamp = timestamp
 
                 cases.append((i, timestamp, self.input_ds.isel(**{self.case_dimension: i})))
-                if self.time_coordinate:
-                    cases = sorted(cases, key=lambda t: t[1])
+            if self.time_coordinate:
+                cases = sorted(cases, key=lambda t: t[1])
             p.complete("Done")
 
             # check the layers, removing any that fail

@@ -32,8 +32,8 @@ pip install git+https://github.com/surftemp/netcdf_explorer.git
 Use `generate_html` to create a static HTML file and images from a netcdf4 file
 
 ```
-wget https://github.com/surftemp/netcdf_explorer/raw/main/test/area_293_min.nc
-wget https://github.com/surftemp/netcdf_explorer/raw/main/test/example_layers.json5
+wget https://github.com/surftemp/netcdf_explorer/raw/main/test/netcdf_explorer_tests/area_293_min.nc
+wget https://github.com/surftemp/netcdf_explorer/raw/main/test/netcdf_explorer_tests/example_layers.yaml
 generate_html --input-path area_293_min.nc --title "area_293" --output-folder output_folder_with_html --config-path example_layers.yaml
 ```
 
@@ -41,24 +41,24 @@ This will:
 
 * read a dataset from file `area_293_min.nc`
 * create HTML output with layers defined in the file `example_layers.yaml` (see below) entitled "Test output for netcdf2html"
-* note - configuration files may be supplied in yaml or json format
+* note - configuration files must be supplied in yaml format (.yml or .yaml)
 * write the generated output html, image files and other associated files to folder `output_folder_with_html`
 
 Open the file `output_folder_with_html/index.html` in your browser to explore the generated imagery
 
 ### configuration file
 
-You will need to define a JSON file or YAML formatted which maps variables in the input dataset to layers in the generated visualisations
+You will need to define a YAML file which maps variables in the input dataset to layers in the generated visualisations
 
-This [commented example configuration file](test/example_layers.yaml) should explain how the configuration file works
+This [commented example configuration file](test/netcdf_explorer_tests/example_layers.yaml) should explain how the configuration file works
 
 ### common command line options
 
 | option          | description                                                                                       | example                   |
 |-----------------|---------------------------------------------------------------------------------------------------|---------------------------|
  | --title         | specify a title to display at the top of the page                                                 | --title "My Title"        |
- | --input-path    | specify the path of a netcdf4 file containing the input data or a folder containing netcdf4 files | --input-path input.nc     |
- | --config-path   | specify the path of a JSON file containing the configuration                                      | --config-path config.json | 
+ | --input-path    | specify the path of a netcdf4 file containing the input data                                   | --input-path input.nc     |
+ | --config-path   | specify the path of a YAML file containing the configuration                                      | --config-path config.yaml | 
  | --output-folder | specify output folder into which index.html and image files are written                           | --output-folder html_out  | 
 
 ### other command line options
@@ -67,7 +67,7 @@ This [commented example configuration file](test/example_layers.yaml) should exp
 |-----------------|------------------------------------------------------------|---------------------------|
  | --sample-count  | limit the number of cases to display                       | --sample-count 100        |
  | --sample-cases  | specify which cases to display                             | --sample-cases 4 10 12    |
- | --download-data | provide a link to download this data in the generated html | --download-data area97.nc | 
+ | --download-data | include a link to download the input data in the generated html | --download-data | 
 
 
 ## thumbnail
@@ -165,7 +165,7 @@ bigplot --input-path 20250129124009-NCEO-L1C-Landsat9-v2.0-fv01.0.nc --input-var
 
 | option          | description                                                                                                            | example                                        |
 |-----------------|------------------------------------------------------------------------------------------------------------------------|------------------------------------------------|
-| --cchart <PATH> | path to a JSON format {<value>:<colour>} colour chart mapping nominal values to colours, overrides --cmap if specified | --chart colour_map.json                        |
+| --cchart <PATH> | path to a JSON format {<value>:<colour>} colour chart mapping nominal values to colours, overrides --cmap if specified | --cchart colour_map.json                       |
 
 
 The format of the JSON `cchart` file is explained by the following example which maps value 0 to "red", 1 to "green" and 2 to "blue:
