@@ -39,8 +39,8 @@ def main():
     parser.add_argument("--download-data", action="store_true",
                         help="include a download link in the HTML")
     parser.add_argument("--output-folder", help="folder to write html output", default="html_output")
-    parser.add_argument("--config-path", help="JSON or YAML file specifying one or more layer specifications",
-                        default="layers.json", required=True)
+    parser.add_argument("--config-path", help="YAML file specifying one or more layer specifications",
+                        required=True)
     parser.add_argument("--sample-count", type=int, default=None,
                         help="randomly sample this many cases for display"),
     parser.add_argument("--sample-cases", nargs="+", type=int, default=None,

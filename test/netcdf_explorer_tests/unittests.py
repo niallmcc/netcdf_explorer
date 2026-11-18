@@ -11,12 +11,11 @@ class Test(unittest.TestCase):
 
     def test_293_api(self):
         path = os.path.join(os.path.split(__file__)[0],"area_293_min.nc")
-        ds = xr.open_dataset(path)
         layers_path = os.path.join(os.path.split(__file__)[0],"example_layers.yaml")
         output_folder = os.path.join(os.path.split(__file__)[0], "area_293_output_api")
         with open(layers_path) as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
-        gen = HTMLGenerator(config=config, input_ds=ds, output_folder=output_folder, title="area 293", download_from=path, filter_controls=True)
+        gen = HTMLGenerator(config=config, input_path=path, output_folder=output_folder, title="area 293", add_download_link=True, filter_controls=True)
         gen.run()
 
     def test_293_commandline(self):
@@ -44,4 +43,5 @@ class Test(unittest.TestCase):
         cli_test = 'python -m netcdf_explorer.cli.bigplot --input-path area_293_min.nc --iselector time 1 1 --input-variable ST --output-path area_293_min_cmdline_st.png --title "area_293_min_st" --vmin 270 --vmax 330 --cmap viridis --plot-width 512'
         os.system(f'(cd {os.path.split(__file__)[0]}; {cli_test})')
 
-
+if __name__ == '__main__':
+    unittest.main()

@@ -22,45 +22,7 @@
 
 from ..htmlfive.html5_builder import Html5Builder, Fragment, ElementFragment
 import base64
-from PIL import Image
-from matplotlib import cm
-import numpy as np
-import math
 from .utils import prepare_attrs
-
-def save_image(arr,vmin,vmax,path,cmap_name="coolwarm"):
-    if cmap_name == "viridis":
-        cmap_fn = cm.viridis
-    elif cmap_name == "coolwarm":
-        cmap_fn = cm.coolwarm
-    else:
-        raise ValueError("Unknown colour map: "+cmap_name)
-    im = Image.fromarray(np.uint8((255*cmap_fn((arr-vmin)/(vmax-vmin)))))
-    im.save(path)
-
-def save_image_falsecolour(data_red, data_green, data_blue, path):
-    alist = []
-    for arr in [data_red, data_green, data_blue]:
-        minv = np.nanmin(arr)
-        maxv = np.nanmax(arr)
-        v = (arr - minv) / (maxv - minv)
-        v = np.sqrt(v)
-        alist.append((255*v).astype(np.uint8))
-    arr = np.stack(alist,axis=-1)
-    im = Image.fromarray(arr,mode="RGB")
-    im.save(path)
-
-def save_image_mask(arr, path, r, g, b):
-    alist = []
-    a = np.zeros(arr.shape)
-    alist.append((a + r).astype(np.uint8))
-    alist.append((a + g).astype(np.uint8))
-    alist.append((a + b).astype(np.uint8))
-    alist.append(np.where(arr>0,255,0).astype(np.uint8))
-    rgba_arr = np.stack(alist, axis=-1)
-    im = Image.fromarray(rgba_arr, mode="RGBA")
-    im.save(path)
-
 
 class ImageFragment(ElementFragment):
 
