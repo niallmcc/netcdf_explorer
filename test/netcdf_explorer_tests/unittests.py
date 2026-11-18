@@ -43,4 +43,5 @@ class Test(unittest.TestCase):
         cli_test = 'python -m netcdf_explorer.cli.bigplot --input-path area_293_min.nc --iselector time 1 1 --input-variable ST --output-path area_293_min_cmdline_st.png --title "area_293_min_st" --vmin 270 --vmax 330 --cmap viridis --plot-width 512'
         os.system(f'(cd {os.path.split(__file__)[0]}; {cli_test})')
 
-
+if __name__ == '__main__':
+    unittest.main()

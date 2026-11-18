@@ -32,8 +32,8 @@ pip install git+https://github.com/surftemp/netcdf_explorer.git
 Use `generate_html` to create a static HTML file and images from a netcdf4 file
 
 ```
-wget https://github.com/surftemp/netcdf_explorer/raw/main/test/netcdf_explorer_tests/area_293_min.nc
-wget https://github.com/surftemp/netcdf_explorer/raw/main/test/netcdf_explorer_tests/example_layers.yaml
+wget https://github.com/niallmcc/netcdf_explorer/raw/main/test/netcdf_explorer_tests/area_293_min.nc
+wget https://github.com/niallmcc/netcdf_explorer/raw/main/test/netcdf_explorer_tests/example_layers.yaml
 generate_html --input-path area_293_min.nc --title "area_293" --output-folder output_folder_with_html --config-path example_layers.yaml
 ```
 
