@@ -71,7 +71,7 @@ class Progress(object):
         self.last_progress_frac = None
 
     def report(self,msg,progress_frac):
-        if self.last_progress_frac == None or (progress_frac - self.last_progress_frac) >= 0.01:
+        if self.last_progress_frac is None or (progress_frac - self.last_progress_frac) >= 0.01:
             self.last_progress_frac = progress_frac
             i = int(100*progress_frac)
             if i > 100:
@@ -140,7 +140,7 @@ class HTMLGenerator:
             if not os.path.exists(download_link_path):
                 os.symlink(input_path, download_link_path)
             else:
-                print("Download path {download_link_path} already exists, unable to create new download link.  Data will not be linked in output.")
+                print(f"Download path {download_link_path} already exists, unable to create new download link.  Data will not be linked in output.")
                 self.download_filename = ""
 
         self.output_html_path = os.path.join(output_folder, "index.html")
@@ -721,7 +721,6 @@ class HTMLGenerator:
 
         tf.add_header_row(button_cells)
 
-        current_group_label = ""
         row = 0
         for (index, timestamp, layer_sources, _, ds) in self.layer_images:
             cells = [self.generate_index_cell(row)]

@@ -81,6 +81,9 @@ def main():
 
     npaths = len(input_paths)
     logger.info(f"Matched {npaths} input files to process")
+    if npaths == 0:
+        logger.error(f"No input files matched --input-path {' '.join(args.input_path)}")
+        sys.exit(1)
 
     # --input-path may point to a path or a folder
 
@@ -92,7 +95,7 @@ def main():
     if suffix != "":
         # has suffix, looks like a filename?
         if npaths > 1:
-            logger.error(f"When processing multiple input files, the --output-path should specify a folder")
+            logger.error("When processing multiple input files, the --output-path should specify a folder")
             sys.exit(-1)
         else:
             # special case - for backwards compatibility allow args.output_path to point to a filename and not a folder
@@ -104,6 +107,7 @@ def main():
         output_folder = args.output_path
         os.makedirs(output_folder,exist_ok=True)
 
+    failed_paths = []
     for input_path in input_paths:
         logger.info(f"Processing {input_path}")
         try:
@@ -163,6 +167,11 @@ def main():
             ds.close()
         except Exception:
             logger.exception(f"Failed to process {input_path}")
+            failed_paths.append(input_path)
+
+    if failed_paths:
+        logger.error(f"Failed to process {len(failed_paths)} of {npaths} input files")
+        sys.exit(1)
 
 
 
