@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import subprocess
@@ -123,11 +124,20 @@ class Test(unittest.TestCase):
         output_folder = os.path.join(self.output_dir, "area_293_output_sampled")
         run_cli("netcdf_explorer.cli.generate_html",
                 ["--input-path", INPUT_PATH, "--title", "area_293", "--output-folder", output_folder,
-                 "--config-path", CONFIG_PATH, "--sample-cases", "0", "2"], cwd=self.output_dir)
+                 "--config-path", CONFIG_PATH, "--sample-cases", "2", "0"], cwd=self.output_dir)
         with open(os.path.join(output_folder, "scenes.json")) as f:
             scenes = json.load(f)
         self.assertEqual(len(scenes["index"]), 2)
+        timestamps = [scene["timestamp"] for scene in scenes["index"]]
+        self.assertEqual(timestamps, sorted(timestamps), "cases should be in time order")
         self.assertFalse(os.path.exists(os.path.join(output_folder, os.path.basename(INPUT_PATH))))
+
+        # the timeseries CSV rows should also be in time order, whatever order the cases were selected in
+        with open(os.path.join(output_folder, "timeseries", "ST_cloudy.csv")) as f:
+            csv_timestamps = [line.split(",")[0] for line in f.read().splitlines()[1:]]
+        self.assertEqual(len(csv_timestamps), 2)
+        self.assertEqual(csv_timestamps, sorted(csv_timestamps))
+        self.assertEqual(csv_timestamps, timestamps)
 
     def test_bigplot(self):
         output_path = os.path.join(self.output_dir, "area_293_min.png")
@@ -253,6 +263,30 @@ class TestConfigErrors(unittest.TestCase):
                           add_download_link=False, show_progress=False)
         self.assertIn("'CLOUD_MASK'", str(cm.exception))
         self.assertIn("unclosed_parenthesis", str(cm.exception))
+
+    def test_config_is_not_modified(self):
+        config = load_example_config()
+        config["timeseries"]["ST_cloudy"]["variables"].append("NO_SUCH_VARIABLE")
+        config["timeseries"]["ST_cloudy"]["masks"].append("NO_SUCH_MASK")
+        expected = copy.deepcopy(config)
+        with tempfile.TemporaryDirectory() as tmp:
+            gen = HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
+                                add_download_link=False, show_progress=False)
+        self.assertEqual(config, expected)
+        # the generator itself only keeps the variables and masks found in the input data
+        (_, spec, _) = gen.timeseries_definitions[0]
+        self.assertEqual(spec["variables"], ["ST"])
+        self.assertEqual(spec["masks"], ["CLOUD_MASK", "EXTENDED_CLOUD_MASK"])
+
+    def test_config_error_writes_no_output(self):
+        config = load_example_config()
+        del config["layers"]["ST"]["min_value"]
+        with tempfile.TemporaryDirectory() as tmp:
+            output_folder = os.path.join(tmp, "out")
+            with self.assertRaises(ConfigError):
+                HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=output_folder, title="t",
+                              add_download_link=True, show_progress=False)
+            self.assertFalse(os.path.exists(output_folder))
 
 
 class TestGenerateHtmlConfigErrors(unittest.TestCase):
