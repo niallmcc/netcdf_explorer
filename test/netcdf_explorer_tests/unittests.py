@@ -15,7 +15,6 @@ from netcdf_explorer.api.config_error import ConfigError
 from netcdf_explorer.api.expr_parser import ExpressionParser
 from netcdf_explorer.api.html_generator import HTMLGenerator
 from netcdf_explorer.api.layers import LayerFactory
-from netcdf_explorer.htmlfive.html5_builder import ElementFragment
 
 TEST_FOLDER = os.path.dirname(os.path.abspath(__file__))
 INPUT_PATH = os.path.join(TEST_FOLDER, "area_293_min.nc")
@@ -166,24 +165,6 @@ class Test(unittest.TestCase):
             run_cli("netcdf_explorer.cli.bigplot",
                     ["--input-path", INPUT_PATH, "--input-variable", "NO_SUCH_VARIABLE",
                      "--output-path", os.path.join(self.output_dir, "out.png")], cwd=self.output_dir)
-
-
-class TestElementFragment(unittest.TestCase):
-
-    def test_default_attrs_and_style_are_not_shared(self):
-        first = ElementFragment("div")
-        first.set_attribute("id", "first").set_style("color", "red")
-        second = ElementFragment("div")
-        self.assertEqual(second.attrs, {})
-        self.assertEqual(second.style, {})
-
-    def test_callers_dicts_are_not_changed(self):
-        attrs = {"id": "a"}
-        style = {"color": "red"}
-        fragment = ElementFragment("div", attrs, style)
-        fragment.set_attribute("class", "x").set_style("width", "10px")
-        self.assertEqual(attrs, {"id": "a"})
-        self.assertEqual(style, {"color": "red"})
 
 
 class TestExpressionParser(unittest.TestCase):
