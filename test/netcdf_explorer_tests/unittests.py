@@ -254,6 +254,16 @@ class TestConfigErrors(unittest.TestCase):
         self.assertIn("'CLOUD_MASK'", str(cm.exception))
         self.assertIn("unclosed_parenthesis", str(cm.exception))
 
+    def test_config_error_writes_no_output(self):
+        config = load_example_config()
+        del config["layers"]["ST"]["min_value"]
+        with tempfile.TemporaryDirectory() as tmp:
+            output_folder = os.path.join(tmp, "out")
+            with self.assertRaises(ConfigError):
+                HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=output_folder, title="t",
+                              add_download_link=True, show_progress=False)
+            self.assertFalse(os.path.exists(output_folder))
+
 
 class TestGenerateHtmlConfigErrors(unittest.TestCase):
 

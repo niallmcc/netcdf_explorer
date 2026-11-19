@@ -100,14 +100,56 @@ class HTMLGenerator:
     def __init__(self, config, input_path, output_folder, title,
                  add_download_link=True, filter_controls=False, sample_count=None, sample_cases=None,
                  show_progress=True):
+        """Read and check the configuration and input data.
 
+        No output is written until run() is called, so a configuration error leaves the output folder untouched.
+        """
         self.logger = logging.getLogger("generate_html")
         self.show_progress = show_progress
 
-        input_ds = xr.open_dataset(input_path)
+        self.input_path = input_path
+        self.output_folder = output_folder
+        self.output_html_path = os.path.join(output_folder, "index.html")
+        self.title = title
+        self.add_download_link = add_download_link
+        self.download_filename = ""  # set by run() once the download link has been created
+        self.filter_controls = filter_controls
+        self.min_timestamp = self.max_timestamp = None # datetime in "YYYY-MM-DDTHH:MM:SS" format
 
-        os.makedirs(output_folder, exist_ok=True)
+        self.read_config(config)
 
+        self.input_ds = self.select_cases(xr.open_dataset(input_path), sample_count, sample_cases)
+        self.data_width = self.input_ds.sizes[self.x_dimension] if self.x_dimension else None
+        self.data_height = self.input_ds.sizes[self.y_dimension] if self.y_dimension else None
+
+        self.parser = self.create_expression_parser()
+        self.build_derived_bands()
+
+        if self.x_coordinate:
+            self.input_ds = self.reduce_coordinate_dimension(self.input_ds, self.x_coordinate, self.case_dimension)
+        if self.y_coordinate:
+            self.input_ds = self.reduce_coordinate_dimension(self.input_ds, self.y_coordinate, self.case_dimension)
+
+        self.layer_definitions = self.create_layers(config)
+        self.timeseries_definitions = self.create_timeseries(config)
+
+        # filled in by run()
+        self.layer_images = []
+        self.layer_data = []
+        self.layer_legends = {}
+
+        self.all_cmaps = sorted(["Purples", "gist_rainbow", "gist_ncar", "Blues", "Greys", "autumn", "gist_gray", "magma", "Set3",
+                     "cool", "tab20c", "GnBu", "brg", "cividis", "Pastel1", "YlOrRd", "Spectral", "gist_earth", "PuBu",
+                     "OrRd", "PuRd", "plasma", "winter", "PuBuGn", "inferno", "bwr", "RdGy", "Wistia", "gist_stern",
+                     "gist_heat", "BuGn", "twilight", "RdBu", "twilight_shifted", "Paired", "PiYG", "RdYlBu", "Dark2",
+                     "CMRmap", "BuPu", "gnuplot", "PRGn", "nipy_spectral", "ocean", "viridis", "bone", "BrBG",
+                     "gnuplot2", "Oranges", "turbo", "YlGn", "PuOr", "hot", "Set2", "afmhot", "hsv", "YlOrBr",
+                     "terrain", "Accent", "copper", "cubehelix", "RdPu", "tab10", "Reds", "Greens", "gray", "rainbow",
+                     "spring", "tab20", "pink", "coolwarm", "RdYlGn", "Set1", "tab20b", "flag", "gist_yarg", "binary",
+                     "YlGnBu", "seismic", "prism", "Pastel2", "jet", "summer"], key=lambda v:v.lower())
+
+    def read_config(self, config):
+        """Read the top-level settings from the configuration."""
         dimensions = config.get("dimensions", {})
         coordinates = config.get("coordinates", {})
         image = config.get("image", {})
@@ -118,76 +160,111 @@ class HTMLGenerator:
         self.x_coordinate = coordinates.get("x", "")
         self.y_coordinate = coordinates.get("y", "")
         self.time_coordinate = coordinates.get("time", "")
-        self.input_ds = input_ds
-
-        if sample_count is not None or sample_cases is not None:
-            n = len(self.input_ds[self.case_dimension])
-            selected_indexes = list(range(n))
-
-            if sample_cases:
-                selected_indexes = sample_cases
-            else:
-                if sample_count and sample_count < n:
-                    selected_indexes = np.random.choice(np.array(selected_indexes), sample_count,
-                                                    replace=False).tolist()
-            if sample_cases or sample_count:
-                self.input_ds = self.input_ds.isel(**{self.case_dimension: selected_indexes})
-
-        self.data_width = None
-        self.data_height = None
-
-        if self.x_dimension:
-            self.data_width = self.input_ds.sizes[self.x_dimension]
-        if self.y_dimension:
-            self.data_height = self.input_ds.sizes[self.y_dimension]
-
-        self.output_folder = output_folder
-        self.title = title
 
         self.max_zoom = image.get("max-zoom", None)
         self.grid_image_width = image.get("grid-width", None)
-        self.download_filename = ""
-        if add_download_link:
-            self.download_filename = os.path.split(input_path)[-1]
-            download_link_path = os.path.join(self.output_folder, self.download_filename)
-            if not os.path.exists(download_link_path):
-                os.symlink(input_path, download_link_path)
-            else:
-                self.logger.warning(f"Download path {download_link_path} already exists, unable to create new download link.  Data will not be linked in output.")
-                self.download_filename = ""
 
-        self.output_html_path = os.path.join(output_folder, "index.html")
-        self.filter_controls = filter_controls
         self.info = config.get("info",{})
         self.crs = config.get("crs",None)
-        self.min_timestamp = self.max_timestamp = None # datetime in "YYYY-MM-DDTHH:MM:SS" format
-
         self.timeseries = config.get("timeseries",{})
         self.derive_bands = config.get("derive_bands",{})
         self.terrain_view = config.get("terrain_view",{})
 
-        self.parser = ExpressionParser()
-        self.parser.add_unary_operator("not")
-        self.parser.add_binary_operator("*", 5)
-        self.parser.add_binary_operator("/", 5)
-        self.parser.add_binary_operator("+", 4)
-        self.parser.add_binary_operator("-", 4)
-        self.parser.add_binary_operator("|", 3)
-        self.parser.add_binary_operator("&", 3)
-        self.parser.add_binary_operator("==",2)
-        self.parser.add_binary_operator("and",1)
-        self.parser.add_binary_operator("or",1)
+    def select_cases(self, ds, sample_count, sample_cases):
+        """Return ds restricted to the requested cases: either the given indexes or a random sample."""
+        if sample_count is None and sample_cases is None:
+            return ds
 
-        self.build_derived_bands()
+        n = len(ds[self.case_dimension])
+        selected_indexes = list(range(n))
 
-        image_folder = os.path.join(self.output_folder, "images")
-        os.makedirs(image_folder, exist_ok=True)
+        if sample_cases:
+            selected_indexes = sample_cases
+        else:
+            if sample_count and sample_count < n:
+                selected_indexes = np.random.choice(np.array(selected_indexes), sample_count,
+                                                replace=False).tolist()
+        if sample_cases or sample_count:
+            ds = ds.isel(**{self.case_dimension: selected_indexes})
+        return ds
 
-        data_folder = os.path.join(self.output_folder, "data")
-        os.makedirs(data_folder, exist_ok=True)
+    @staticmethod
+    def create_expression_parser():
+        """Create the parser used to read derive_bands expressions."""
+        parser = ExpressionParser()
+        parser.add_unary_operator("not")
+        parser.add_binary_operator("*", 5)
+        parser.add_binary_operator("/", 5)
+        parser.add_binary_operator("+", 4)
+        parser.add_binary_operator("-", 4)
+        parser.add_binary_operator("|", 3)
+        parser.add_binary_operator("&", 3)
+        parser.add_binary_operator("==",2)
+        parser.add_binary_operator("and",1)
+        parser.add_binary_operator("or",1)
+        return parser
 
-        cmap_folder = os.path.join(self.output_folder, "cmaps")
-        os.makedirs(cmap_folder, exist_ok=True)
+    def create_layers(self, config):
+        """Create a layer definition for each entry in the configuration's layers section."""
+        return [LayerFactory.create(self, layer_name, layer_spec)
+                for (layer_name, layer_spec) in config.get("layers", {}).items()]
+
+    def create_timeseries(self, config):
+        """Check each timeseries in the configuration, keeping only variables and masks found in the input data.
+
+        Returns a list of (timeseries_name, timeseries_spec, timeseries_detail) tuples.
+        """
+        timeseries_definitions = []
+        for (timeseries_name, timeseries_spec) in config.get("timeseries", {}).items():
+
+            self.check_timeseries_spec(timeseries_name, timeseries_spec)
+
+            valid_variables = []
+            for variable in timeseries_spec["variables"]:
+                variable_components = variable.split(":")
+                variable_name = variable_components[0]
+                if variable_name in self.input_ds:
+                    valid_variables.append(variable)
+
+            if len(valid_variables) == 0:
+                self.logger.warning(f"Unable to add timeseries {timeseries_name}, no valid variables")
+                continue
+            else:
+                timeseries_spec["variables"] = valid_variables
+
+            mask_names = timeseries_spec.get("masks",[])
+            if len(mask_names) > 0:
+                valid_masks = []
+                for mask_name in timeseries_spec.get("masks",[]):
+                    if mask_name in self.input_ds:
+                        valid_masks.append(mask_name)
+                if len(valid_masks) == 0:
+                    self.logger.warning(f"Unable to add timeseries {timeseries_name}, no valid masks")
+                    continue
+                else:
+                    timeseries_spec["masks"] = valid_masks
+
+            timeseries_definitions.append((timeseries_name, timeseries_spec, {}))
+        return timeseries_definitions
+
+    def write_static_files(self):
+        """Create the output folders and copy in the javascript, css, colour maps and libraries the page uses.
+
+        Also creates the download link to the input data, if one was requested.
+        """
+        os.makedirs(self.output_folder, exist_ok=True)
+
+        if self.add_download_link:
+            self.download_filename = os.path.split(self.input_path)[-1]
+            download_link_path = os.path.join(self.output_folder, self.download_filename)
+            if not os.path.exists(download_link_path):
+                os.symlink(self.input_path, download_link_path)
+            else:
+                self.logger.warning(f"Download path {download_link_path} already exists, unable to create new download link.  Data will not be linked in output.")
+                self.download_filename = ""
+
+        for folder in ["images", "data", "cmaps"]:
+            os.makedirs(os.path.join(self.output_folder, folder), exist_ok=True)
 
         js_code = ""
         for js_path in js_paths:
@@ -213,66 +290,7 @@ class HTMLGenerator:
                 filename = os.path.split(dependency_path)[-1]
                 shutil.copyfile(dependency_path,os.path.join(dependency_folder, filename))
 
-        self.layer_definitions = []
-
-        self.layer_images = []
-        self.layer_data = []
-        self.layer_legends = {}
-
-        self.timeseries_definitions = []
-
-        if self.x_coordinate:
-            self.input_ds = self.reduce_coordinate_dimension(self.input_ds, self.x_coordinate, self.case_dimension)
-        if self.y_coordinate:
-            self.input_ds = self.reduce_coordinate_dimension(self.input_ds, self.y_coordinate, self.case_dimension)
-
-        if "layers" in config:
-            for (layer_name, layer_spec) in config["layers"].items():
-                layer = LayerFactory.create(self, layer_name, layer_spec)
-                self.layer_definitions.append(layer)
-
-        if "timeseries" in config:
-            for (timeseries_name, timeseries_spec) in config["timeseries"].items():
-
-                self.check_timeseries_spec(timeseries_name, timeseries_spec)
-
-                valid_variables = []
-                for variable in timeseries_spec["variables"]:
-                    variable_components = variable.split(":")
-                    variable_name = variable_components[0]
-                    if variable_name in self.input_ds:
-                        valid_variables.append(variable)
-
-                if len(valid_variables) == 0:
-                    self.logger.warning(f"Unable to add timeseries {timeseries_name}, no valid variables")
-                    continue
-                else:
-                    timeseries_spec["variables"] = valid_variables
-
-                mask_names = timeseries_spec.get("masks",[])
-                if len(mask_names) > 0:
-                    valid_masks = []
-                    for mask_name in timeseries_spec.get("masks",[]):
-                        if mask_name in self.input_ds:
-                            valid_masks.append(mask_name)
-                    if len(valid_masks) == 0:
-                        self.logger.warning(f"Unable to add timeseries {timeseries_name}, no valid masks")
-                        continue
-                    else:
-                        timeseries_spec["masks"] = valid_masks
-
-                self.timeseries_definitions.append((timeseries_name, timeseries_spec, {}))
-
-        self.all_cmaps = sorted(["Purples", "gist_rainbow", "gist_ncar", "Blues", "Greys", "autumn", "gist_gray", "magma", "Set3",
-                     "cool", "tab20c", "GnBu", "brg", "cividis", "Pastel1", "YlOrRd", "Spectral", "gist_earth", "PuBu",
-                     "OrRd", "PuRd", "plasma", "winter", "PuBuGn", "inferno", "bwr", "RdGy", "Wistia", "gist_stern",
-                     "gist_heat", "BuGn", "twilight", "RdBu", "twilight_shifted", "Paired", "PiYG", "RdYlBu", "Dark2",
-                     "CMRmap", "BuPu", "gnuplot", "PRGn", "nipy_spectral", "ocean", "viridis", "bone", "BrBG",
-                     "gnuplot2", "Oranges", "turbo", "YlGn", "PuOr", "hot", "Set2", "afmhot", "hsv", "YlOrBr",
-                     "terrain", "Accent", "copper", "cubehelix", "RdPu", "tab10", "Reds", "Greens", "gray", "rainbow",
-                     "spring", "tab20", "pink", "coolwarm", "RdYlGn", "Set1", "tab20b", "flag", "gist_yarg", "binary",
-                     "YlGnBu", "seismic", "prism", "Pastel2", "jet", "summer"], key=lambda v:v.lower())
-
+        cmap_folder = os.path.join(self.output_folder, "cmaps")
         for cmap in self.all_cmaps:
             source_path = os.path.join(os.path.abspath(os.path.split(__file__)[0]),"..","misc","cmaps", cmap+".json")
             dest_path = os.path.join(cmap_folder, cmap + ".json")
@@ -470,6 +488,8 @@ class HTMLGenerator:
         return d
 
     def run(self):
+        self.write_static_files()
+
         cases = []
         image_width = None
         image_height = None
