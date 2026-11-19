@@ -392,11 +392,11 @@ class HTMLGenerator:
             # coordinate is 2-dimensional, see if it can be reduced to 1-dimensional
             da = ds[coordinate_name]
             arr = da.data
-            if np.alltrue(arr[0, :] == arr[-1, :]):
+            if np.all(arr[0, :] == arr[-1, :]):
                 # assume all rows are identical if first and last rows are
                 ds[coordinate_name] = xr.DataArray(arr[0, :], dims=(da.dims[1],), attrs=da.attrs)
                 return ds
-            if np.alltrue(arr[:, 0] == arr[:, -1]):
+            if np.all(arr[:, 0] == arr[:, -1]):
                 # assume all columns are identical if first and last columns are
                 ds[coordinate_name] = xr.DataArray(arr[:, 0], dims=(da.dims[0],), attrs=da.attrs)
                 return ds
