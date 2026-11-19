@@ -68,6 +68,8 @@ dygraph_dependency_paths = [os.path.join(src_folder,"..","dependencies","dygraph
 babylonjs_dependency_paths = [os.path.join(src_folder,"..","dependencies","babylon.js"),
                     os.path.join(src_folder,"..","dependencies","babylonTerrain.js")]
 
+cmaps_folder = os.path.join(os.path.abspath(src_folder), "..", "misc", "cmaps")  # one <name>.json per colour map
+
 class Progress:
 
     def __init__(self, label, enabled=True):
@@ -138,15 +140,8 @@ class HTMLGenerator:
         self.layer_data = []
         self.layer_legends = {}
 
-        self.all_cmaps = sorted(["Purples", "gist_rainbow", "gist_ncar", "Blues", "Greys", "autumn", "gist_gray", "magma", "Set3",
-                     "cool", "tab20c", "GnBu", "brg", "cividis", "Pastel1", "YlOrRd", "Spectral", "gist_earth", "PuBu",
-                     "OrRd", "PuRd", "plasma", "winter", "PuBuGn", "inferno", "bwr", "RdGy", "Wistia", "gist_stern",
-                     "gist_heat", "BuGn", "twilight", "RdBu", "twilight_shifted", "Paired", "PiYG", "RdYlBu", "Dark2",
-                     "CMRmap", "BuPu", "gnuplot", "PRGn", "nipy_spectral", "ocean", "viridis", "bone", "BrBG",
-                     "gnuplot2", "Oranges", "turbo", "YlGn", "PuOr", "hot", "Set2", "afmhot", "hsv", "YlOrBr",
-                     "terrain", "Accent", "copper", "cubehelix", "RdPu", "tab10", "Reds", "Greens", "gray", "rainbow",
-                     "spring", "tab20", "pink", "coolwarm", "RdYlGn", "Set1", "tab20b", "flag", "gist_yarg", "binary",
-                     "YlGnBu", "seismic", "prism", "Pastel2", "jet", "summer"], key=lambda v:v.lower())
+        self.all_cmaps = sorted([filename[:-len(".json")] for filename in os.listdir(cmaps_folder)
+                                 if filename.endswith(".json")], key=lambda v:v.lower())
 
     def read_config(self, config):
         """Read the top-level settings from the configuration."""
@@ -218,6 +213,7 @@ class HTMLGenerator:
         for (timeseries_name, timeseries_spec) in config.get("timeseries", {}).items():
 
             self.check_timeseries_spec(timeseries_name, timeseries_spec)
+            timeseries_spec = dict(timeseries_spec)  # copy, so the caller's configuration is not modified
 
             valid_variables = []
             for variable in timeseries_spec["variables"]:
@@ -292,7 +288,7 @@ class HTMLGenerator:
 
         cmap_folder = os.path.join(self.output_folder, "cmaps")
         for cmap in self.all_cmaps:
-            source_path = os.path.join(os.path.abspath(os.path.split(__file__)[0]),"..","misc","cmaps", cmap+".json")
+            source_path = os.path.join(cmaps_folder, cmap+".json")
             dest_path = os.path.join(cmap_folder, cmap + ".json")
             shutil.copyfile(source_path, dest_path)
 

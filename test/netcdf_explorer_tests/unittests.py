@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import subprocess
@@ -253,6 +254,20 @@ class TestConfigErrors(unittest.TestCase):
                           add_download_link=False, show_progress=False)
         self.assertIn("'CLOUD_MASK'", str(cm.exception))
         self.assertIn("unclosed_parenthesis", str(cm.exception))
+
+    def test_config_is_not_modified(self):
+        config = load_example_config()
+        config["timeseries"]["ST_cloudy"]["variables"].append("NO_SUCH_VARIABLE")
+        config["timeseries"]["ST_cloudy"]["masks"].append("NO_SUCH_MASK")
+        expected = copy.deepcopy(config)
+        with tempfile.TemporaryDirectory() as tmp:
+            gen = HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
+                                add_download_link=False, show_progress=False)
+        self.assertEqual(config, expected)
+        # the generator itself only keeps the variables and masks found in the input data
+        (_, spec, _) = gen.timeseries_definitions[0]
+        self.assertEqual(spec["variables"], ["ST"])
+        self.assertEqual(spec["masks"], ["CLOUD_MASK", "EXTENDED_CLOUD_MASK"])
 
     def test_config_error_writes_no_output(self):
         config = load_example_config()
