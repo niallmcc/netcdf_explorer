@@ -488,93 +488,119 @@ class HTMLGenerator:
         return d
 
     def run(self):
+        """Write the HTML page, images, data and timeseries files to the output folder."""
         self.write_static_files()
 
-        cases = []
         image_width = None
         image_height = None
-
         if self.layer_definitions:
             image_width, image_height = self.get_image_dimensions(self.input_ds)
+            cases = self.read_cases()
+            self.check_layers()
+            self.build_legends()
+            self.build_layer_images(cases)
 
-            n = len(self.input_ds[self.case_dimension])
-
-            p = Progress("Reading data", enabled=self.show_progress)
-            for i in range(n):
-                p.report("", i/n)
-                # timestamp will be formatted YYYY-MM-DDT:HH:MM:SS
-                timestamp = str(self.input_ds[self.time_coordinate].data[i])[:19] if self.time_coordinate else None
-                if timestamp:
-                    if self.min_timestamp is None or timestamp < self.min_timestamp:
-                        self.min_timestamp = timestamp
-                    if self.max_timestamp is None or timestamp > self.max_timestamp:
-                        self.max_timestamp = timestamp
-
-                cases.append((i, timestamp, self.input_ds.isel(**{self.case_dimension: i})))
-            if self.time_coordinate:
-                cases = sorted(cases, key=lambda t: t[1])
-            p.complete("Done")
-
-            # check the layers, removing any that fail
-            remove_layers = []
-            for layer_definition in self.layer_definitions:
-                err = layer_definition.check(self.input_ds)
-                if err:
-                    self.logger.warning(f"Unable to add layer {layer_definition.layer_name}: {err}")
-                    remove_layers.append(layer_definition)
-
-            for layer_definition in remove_layers:
-                self.layer_definitions.remove(layer_definition)
-
-            # build the legends
-            for layer_definition in self.flatten_layers(self.layer_definitions):
-                if layer_definition.has_legend():
-                    legend_src, legend_path = self.get_image_path(layer_definition.layer_name + "_legend")
-                    layer_definition.build_legend(legend_path)
-                    self.layer_legends[layer_definition.layer_name] = legend_src
-
-            p = Progress("Building images", enabled=self.show_progress)
-
-            static_image_srcs = {}
-            static_data_srcs = {}
-
-            for layer_definition in self.flatten_layers(self.layer_definitions):
-                if not layer_definition.get_case_wise():
-                    (src, path) = self.get_image_path(layer_definition.layer_name)
-                    layer_definition.build(self.input_ds, path)
-                    static_image_srcs[layer_definition.layer_name] = src
-                    if layer_definition.save_data():
-                        (data_src, data_path) = self.get_data_path(layer_definition.layer_name)
-                        data_options = layer_definition.build_data(self.input_ds, data_path)
-                        static_data_srcs[layer_definition.layer_name] = {"url": data_src, "options": data_options}
-
-            for (index, timestamp, ds) in cases:
-                p.report("",index/n)
-                image_srcs = {}
-                data_srcs = {}
-
-                for layer_definition in self.flatten_layers(self.layer_definitions):
-                    if layer_definition.get_case_wise():
-                        (src, path) = self.get_image_path(layer_definition.layer_name, index=index)
-                        layer_definition.build(ds, path)
-                        image_srcs[layer_definition.layer_name] = src
-                        if layer_definition.save_data():
-                            (data_src, data_path) = self.get_data_path(layer_definition.layer_name, index)
-                            data_options = layer_definition.build_data(ds, data_path)
-                            data_srcs[layer_definition.layer_name] = {"url":data_src, "options":data_options}
-                    else:
-                        image_srcs[layer_definition.layer_name] = static_image_srcs[layer_definition.layer_name]
-                        if layer_definition.save_data():
-                            data_srcs[layer_definition.layer_name] = static_data_srcs[layer_definition.layer_name]
-
-                self.layer_images.append((index, timestamp, image_srcs, data_srcs, ds))
-
-            p.complete("Done")
-
-        # build timeseries if any are defined
         if self.timeseries_definitions:
             self.build_timeseries_csv()
 
+        builder = self.build_page(image_width, image_height)
+        self.write_scenes_json()
+        self.write_timeseries_json()
+
+        self.logger.info(f"writing {self.output_html_path}")
+        with open(self.output_html_path, "w") as f:
+            f.write(builder.get_html())
+
+    def read_cases(self):
+        """Return a list of (index, timestamp, dataset) for each case, in time order if there is a time coordinate.
+
+        Also records the earliest and latest timestamps.
+        """
+        cases = []
+        n = len(self.input_ds[self.case_dimension])
+
+        p = Progress("Reading data", enabled=self.show_progress)
+        for i in range(n):
+            p.report("", i/n)
+            # timestamp will be formatted YYYY-MM-DDT:HH:MM:SS
+            timestamp = str(self.input_ds[self.time_coordinate].data[i])[:19] if self.time_coordinate else None
+            if timestamp:
+                if self.min_timestamp is None or timestamp < self.min_timestamp:
+                    self.min_timestamp = timestamp
+                if self.max_timestamp is None or timestamp > self.max_timestamp:
+                    self.max_timestamp = timestamp
+
+            cases.append((i, timestamp, self.input_ds.isel(**{self.case_dimension: i})))
+        if self.time_coordinate:
+            cases = sorted(cases, key=lambda t: t[1])
+        p.complete("Done")
+        return cases
+
+    def check_layers(self):
+        """Remove any layers that cannot be built from the input data, logging a warning for each."""
+        remove_layers = []
+        for layer_definition in self.layer_definitions:
+            err = layer_definition.check(self.input_ds)
+            if err:
+                self.logger.warning(f"Unable to add layer {layer_definition.layer_name}: {err}")
+                remove_layers.append(layer_definition)
+
+        for layer_definition in remove_layers:
+            self.layer_definitions.remove(layer_definition)
+
+    def build_legends(self):
+        for layer_definition in self.flatten_layers(self.layer_definitions):
+            if layer_definition.has_legend():
+                legend_src, legend_path = self.get_image_path(layer_definition.layer_name + "_legend")
+                layer_definition.build_legend(legend_path)
+                self.layer_legends[layer_definition.layer_name] = legend_src
+
+    def build_layer_images(self, cases):
+        """Write the images (and data files) for every layer, filling in self.layer_images with one entry per case.
+
+        Layers that do not vary by case are built once and shared by all cases.
+        """
+        n = len(cases)
+        p = Progress("Building images", enabled=self.show_progress)
+
+        static_image_srcs = {}
+        static_data_srcs = {}
+
+        for layer_definition in self.flatten_layers(self.layer_definitions):
+            if not layer_definition.get_case_wise():
+                (src, path) = self.get_image_path(layer_definition.layer_name)
+                layer_definition.build(self.input_ds, path)
+                static_image_srcs[layer_definition.layer_name] = src
+                if layer_definition.save_data():
+                    (data_src, data_path) = self.get_data_path(layer_definition.layer_name)
+                    data_options = layer_definition.build_data(self.input_ds, data_path)
+                    static_data_srcs[layer_definition.layer_name] = {"url": data_src, "options": data_options}
+
+        for (index, timestamp, ds) in cases:
+            p.report("",index/n)
+            image_srcs = {}
+            data_srcs = {}
+
+            for layer_definition in self.flatten_layers(self.layer_definitions):
+                if layer_definition.get_case_wise():
+                    (src, path) = self.get_image_path(layer_definition.layer_name, index=index)
+                    layer_definition.build(ds, path)
+                    image_srcs[layer_definition.layer_name] = src
+                    if layer_definition.save_data():
+                        (data_src, data_path) = self.get_data_path(layer_definition.layer_name, index)
+                        data_options = layer_definition.build_data(ds, data_path)
+                        data_srcs[layer_definition.layer_name] = {"url":data_src, "options":data_options}
+                else:
+                    image_srcs[layer_definition.layer_name] = static_image_srcs[layer_definition.layer_name]
+                    if layer_definition.save_data():
+                        data_srcs[layer_definition.layer_name] = static_data_srcs[layer_definition.layer_name]
+
+            self.layer_images.append((index, timestamp, image_srcs, data_srcs, ds))
+
+        p.complete("Done")
+
+    def build_page(self, image_width, image_height):
+        """Build the HTML page, returning the Html5Builder holding it."""
         builder = Html5Builder(language="en")
 
         builder.head().add_element("title").add_text(self.title)
@@ -615,11 +641,20 @@ class HTMLGenerator:
 
             self.build_timeseries_view(timeseries_container_div, builder)
 
-        scenes = {"layers": [], "index": [], "layer_groups": {}}
-
         if self.terrain_view:
             terrain_container_div = container_div.add_element("div", {"id": "terrain_container", "style":"display:none;"})
             self.build_terrain_view(terrain_container_div, builder)
+
+        if image_width:
+            builder.head().add_element("script").add_text("let image_width=" + json.dumps(image_width) + ";")
+
+        return builder
+
+    def write_scenes_json(self):
+        """Write scenes.json, describing the layers and, for each case, its images, data files and info."""
+        scenes = {"layers": [], "index": [], "layer_groups": {}}
+
+        if self.terrain_view:
             scenes["terrain_view"] = self.terrain_view
 
         for layer_definition in self.flatten_layers(self.layer_definitions):
@@ -665,24 +700,20 @@ class HTMLGenerator:
         with open(os.path.join(self.output_folder, "scenes.json"), "w") as f:
             f.write(json.dumps(scenes,indent=4))
 
-        if image_width:
-            builder.head().add_element("script").add_text("let image_width=" + json.dumps(image_width) + ";")
-
-        if self.timeseries_definitions:
-            timeseries = []
-            for (timeseries_name, timeseries_spec, timeseries_detail) in self.timeseries_definitions:
-                timeseries.append({
-                    "name": timeseries_name,
-                    "spec": timeseries_spec,
-                    "csv_url": timeseries_detail["csv_url"],
-                    "div_id": timeseries_detail["div_id"]
-                })
-            with open(os.path.join(self.output_folder, "timeseries.json"), "w") as f:
-                f.write(json.dumps(timeseries, indent=4))
-
-        self.logger.info(f"writing {self.output_html_path}")
-        with open(self.output_html_path, "w") as f:
-            f.write(builder.get_html())
+    def write_timeseries_json(self):
+        """Write timeseries.json, listing each timeseries chart and its CSV file (only if there are timeseries)."""
+        if not self.timeseries_definitions:
+            return
+        timeseries = []
+        for (timeseries_name, timeseries_spec, timeseries_detail) in self.timeseries_definitions:
+            timeseries.append({
+                "name": timeseries_name,
+                "spec": timeseries_spec,
+                "csv_url": timeseries_detail["csv_url"],
+                "div_id": timeseries_detail["div_id"]
+            })
+        with open(os.path.join(self.output_folder, "timeseries.json"), "w") as f:
+            f.write(json.dumps(timeseries, indent=4))
 
     def build_grid_view(self, grid_container_div, builder, image_width, image_height, display_timeseries=False):
         grid_container_div.add_element("input",
