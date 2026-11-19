@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 
 import xarray as xr
@@ -10,7 +11,10 @@ import yaml
 from PIL import Image
 
 import netcdf_explorer.api.bigplot
+from netcdf_explorer.api.config_error import ConfigError
+from netcdf_explorer.api.expr_parser import ExpressionParser
 from netcdf_explorer.api.html_generator import HTMLGenerator
+from netcdf_explorer.api.layers import LayerFactory
 
 TEST_FOLDER = os.path.dirname(os.path.abspath(__file__))
 INPUT_PATH = os.path.join(TEST_FOLDER, "area_293_min.nc")
@@ -34,6 +38,26 @@ def run_cli(module, args, cwd):
     if result.returncode != 0:
         raise AssertionError(f"{module} exited with code {result.returncode}\n"
                              f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+    return result
+
+
+def run_cli_expecting_failure(module, args, cwd):
+    """Run a command-line tool in a subprocess that is expected to fail, returning the completed process."""
+    result = subprocess.run([sys.executable, "-m", module] + args, cwd=cwd, capture_output=True, text=True)
+    if result.returncode == 0:
+        raise AssertionError(f"{module} was expected to fail but exited with code 0\n"
+                             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+    return result
+
+
+def load_example_config():
+    with open(CONFIG_PATH) as f:
+        return yaml.load(f, Loader=yaml.FullLoader)
+
+
+# a stand-in for HTMLGenerator, providing the attributes LayerFactory reads from it
+STUB_CONVERTER = types.SimpleNamespace(case_dimension="time", x_dimension="x", y_dimension="y",
+                                       time_coordinate="time", x_coordinate="x", y_coordinate="y")
 
 
 class Test(unittest.TestCase):
@@ -141,6 +165,139 @@ class Test(unittest.TestCase):
             run_cli("netcdf_explorer.cli.bigplot",
                     ["--input-path", INPUT_PATH, "--input-variable", "NO_SUCH_VARIABLE",
                      "--output-path", os.path.join(self.output_dir, "out.png")], cwd=self.output_dir)
+
+
+class TestExpressionParser(unittest.TestCase):
+
+    def setUp(self):
+        self.parser = ExpressionParser()
+        self.parser.add_unary_operator("not")
+        self.parser.add_binary_operator("&", 3)
+        self.parser.add_binary_operator("==", 2)
+
+    def test_valid_expression(self):
+        parsed = self.parser.parse("not (QA_PIXEL & 8 == 0)")
+        self.assertEqual(parsed["operator"], "not")
+
+    def test_invalid_expressions_raise(self):
+        for expression in ["(QA_PIXEL & 8", "QA_PIXEL & 8)", "QA_PIXEL & & 8", "QA_PIXEL &"]:
+            with self.subTest(expression=expression), self.assertRaises(ExpressionParser.ParseError):
+                self.parser.parse(expression)
+
+
+class TestConfigErrors(unittest.TestCase):
+
+    def assertConfigError(self, layer_name, layer, *expected_fragments):
+        with self.assertRaises(ConfigError) as cm:
+            LayerFactory.create(STUB_CONVERTER, layer_name, layer)
+        for fragment in expected_fragments:
+            self.assertIn(fragment, str(cm.exception))
+
+    def test_missing_type(self):
+        self.assertConfigError("ST", {"band": "ST"}, "'ST'", "'type'")
+
+    def test_unknown_type(self):
+        self.assertConfigError("ST", {"type": "singel"}, "'ST'", "unknown type 'singel'")
+
+    def test_missing_required_settings(self):
+        cases = [
+            ({"type": "single", "max_value": 1}, "'min_value'"),
+            ({"type": "single", "min_value": 0}, "'max_value'"),
+            ({"type": "rgb", "red_band": "B4", "green_band": "B3"}, "'blue_band'"),
+            ({"type": "discrete"}, "'values'"),
+            ({"type": "wms"}, "'url'"),
+            ({"type": "static_image"}, "'image_path'"),
+        ]
+        for (layer, missing_key) in cases:
+            with self.subTest(layer=layer):
+                self.assertConfigError("L", layer, "'L'", missing_key)
+
+    def test_unknown_cmap(self):
+        self.assertConfigError("ST", {"type": "single", "min_value": 0, "max_value": 1, "cmap": "rainbw"},
+                               "'ST'", "'rainbw'")
+
+    def test_unknown_mask_colour(self):
+        self.assertConfigError("M", {"type": "mask", "colour": "not-a-colour"}, "'M'", "'not-a-colour'")
+
+    def test_layer_group_errors(self):
+        self.assertConfigError("G", {"type": "layer_group", "layers": {}}, "'G'", "at least one layer")
+        nested = {"type": "layer_group", "layers": {"inner": {"type": "layer_group", "layers": {}}}}
+        self.assertConfigError("G", nested, "cannot be nested")
+
+    def test_layer_not_a_mapping(self):
+        self.assertConfigError("ST", "single", "'ST'", "mapping")
+
+    def test_timeseries_spec_errors(self):
+        cases = [
+            ({}, "'variables'"),
+            ({"variables": []}, "non-empty list"),
+            ({"variables": ["ST:average"]}, "'average'"),
+            ({"variables": ["ST"], "type": "weekly"}, "'weekly'"),
+            ({"variables": ["ST", "B2"], "type": "seasonal"}, "exactly 1 variable"),
+        ]
+        for (spec, expected) in cases:
+            with self.subTest(spec=spec), self.assertRaises(ConfigError) as cm:
+                HTMLGenerator.check_timeseries_spec("TS", spec)
+            self.assertIn("'TS'", str(cm.exception))
+            self.assertIn(expected, str(cm.exception))
+
+    def test_valid_timeseries_spec(self):
+        HTMLGenerator.check_timeseries_spec("TS", {"variables": ["ST", "B2:median"], "masks": ["CLOUD_MASK"]})
+        HTMLGenerator.check_timeseries_spec("TS", {"variables": ["ST"], "type": "seasonal"})
+
+    def test_invalid_derived_band_expression(self):
+        config = load_example_config()
+        config["derive_bands"]["CLOUD_MASK"] = "not (QA_PIXEL & 8 == 0"
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ConfigError) as cm:
+            HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
+                          add_download_link=False, show_progress=False)
+        self.assertIn("'CLOUD_MASK'", str(cm.exception))
+        self.assertIn("unclosed_parenthesis", str(cm.exception))
+
+
+class TestGenerateHtmlConfigErrors(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.output_dir = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_with_config(self, config_text, filename="config.yaml"):
+        config_path = os.path.join(self.output_dir, filename)
+        with open(config_path, "w") as f:
+            f.write(config_text)
+        return run_cli_expecting_failure("netcdf_explorer.cli.generate_html",
+                                         ["--input-path", INPUT_PATH, "--title", "t", "--config-path", config_path,
+                                          "--output-folder", os.path.join(self.output_dir, "out")],
+                                         cwd=self.output_dir)
+
+    def assertCleanError(self, result, *expected_fragments):
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        for fragment in expected_fragments:
+            self.assertIn(fragment, result.stderr)
+
+    def test_layer_missing_setting(self):
+        config = load_example_config()
+        del config["layers"]["ST"]["min_value"]
+        result = self.run_with_config(yaml.dump(config))
+        self.assertCleanError(result, "Error in config file", "'ST'", "'min_value'")
+
+    def test_missing_case_dimension(self):
+        config = load_example_config()
+        del config["dimensions"]["case"]
+        self.assertCleanError(self.run_with_config(yaml.dump(config)), "case dimension")
+
+    def test_not_yaml_extension(self):
+        self.assertCleanError(self.run_with_config("{}", filename="config.json"), "yaml")
+
+    def test_invalid_yaml(self):
+        self.assertCleanError(self.run_with_config("layers: [unclosed"), "not valid yaml")
+
+    def test_empty_config(self):
+        self.assertCleanError(self.run_with_config(""), "mapping of settings")
 
 
 if __name__ == "__main__":

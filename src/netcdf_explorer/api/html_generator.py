@@ -38,6 +38,10 @@ from .colours import ColoursToRGB
 
 from .layers import LayerFactory, LayerSingleBand, LayerWMS, LayerDiscrete
 from .expr_parser import ExpressionParser
+from .config_error import ConfigError, require
+
+AGGREGATION_FUNCTIONS = ("mean", "min", "max", "median")
+TIMESERIES_TYPES = ("timeseries", "seasonal")
 
 from netcdf_explorer.htmlfive.html5_builder import Html5Builder, ElementFragment
 
@@ -64,13 +68,16 @@ dygraph_dependency_paths = [os.path.join(src_folder,"..","dependencies","dygraph
 babylonjs_dependency_paths = [os.path.join(src_folder,"..","dependencies","babylon.js"),
                     os.path.join(src_folder,"..","dependencies","babylonTerrain.js")]
 
-class Progress(object):
+class Progress:
 
-    def __init__(self,label):
+    def __init__(self, label, enabled=True):
         self.label = label
+        self.enabled = enabled
         self.last_progress_frac = None
 
     def report(self,msg,progress_frac):
+        if not self.enabled:
+            return
         if self.last_progress_frac is None or (progress_frac - self.last_progress_frac) >= 0.01:
             self.last_progress_frac = progress_frac
             i = int(100*progress_frac)
@@ -81,6 +88,8 @@ class Progress(object):
             sys.stdout.flush()
 
     def complete(self,msg):
+        if not self.enabled:
+            return
         self.report(msg, 1)
         sys.stdout.write("\n")
         sys.stdout.flush()
@@ -89,7 +98,11 @@ class Progress(object):
 class HTMLGenerator:
 
     def __init__(self, config, input_path, output_folder, title,
-                 add_download_link=True, filter_controls=False, sample_count=None, sample_cases=None):
+                 add_download_link=True, filter_controls=False, sample_count=None, sample_cases=None,
+                 show_progress=True):
+
+        self.logger = logging.getLogger("generate_html")
+        self.show_progress = show_progress
 
         input_ds = xr.open_dataset(input_path)
 
@@ -140,7 +153,7 @@ class HTMLGenerator:
             if not os.path.exists(download_link_path):
                 os.symlink(input_path, download_link_path)
             else:
-                print(f"Download path {download_link_path} already exists, unable to create new download link.  Data will not be linked in output.")
+                self.logger.warning(f"Download path {download_link_path} already exists, unable to create new download link.  Data will not be linked in output.")
                 self.download_filename = ""
 
         self.output_html_path = os.path.join(output_folder, "index.html")
@@ -149,7 +162,6 @@ class HTMLGenerator:
         self.crs = config.get("crs",None)
         self.min_timestamp = self.max_timestamp = None # datetime in "YYYY-MM-DDTHH:MM:SS" format
 
-        self.logger = logging.getLogger("generate_html")
         self.timeseries = config.get("timeseries",{})
         self.derive_bands = config.get("derive_bands",{})
         self.terrain_view = config.get("terrain_view",{})
@@ -222,6 +234,8 @@ class HTMLGenerator:
         if "timeseries" in config:
             for (timeseries_name, timeseries_spec) in config["timeseries"].items():
 
+                self.check_timeseries_spec(timeseries_name, timeseries_spec)
+
                 valid_variables = []
                 for variable in timeseries_spec["variables"]:
                     variable_components = variable.split(":")
@@ -277,10 +291,32 @@ class HTMLGenerator:
                 flattened_layers.append(layer)
         return flattened_layers
 
+    @staticmethod
+    def check_timeseries_spec(timeseries_name, timeseries_spec):
+        """Raise ConfigError if a timeseries specification is invalid, before any work is done."""
+        variables = require(timeseries_spec, "variables", "timeseries", timeseries_name)
+        if not isinstance(variables, list) or len(variables) == 0:
+            raise ConfigError(f"timeseries '{timeseries_name}' setting 'variables' should be a non-empty list")
+        for variable in variables:
+            variable_components = variable.split(":")
+            if len(variable_components) > 1 and variable_components[1] not in AGGREGATION_FUNCTIONS:
+                raise ConfigError(f"timeseries '{timeseries_name}' variable '{variable}' uses unknown aggregation function "
+                                  f"'{variable_components[1]}', should be one of: {', '.join(AGGREGATION_FUNCTIONS)}")
+        timeseries_type = timeseries_spec.get("type", "timeseries")
+        if timeseries_type not in TIMESERIES_TYPES:
+            raise ConfigError(f"timeseries '{timeseries_name}' has unknown type '{timeseries_type}', "
+                              f"should be one of: {', '.join(TIMESERIES_TYPES)}")
+        if timeseries_type == "seasonal" and len(variables) != 1:
+            raise ConfigError(f"timeseries '{timeseries_name}' is seasonal, so it needs exactly 1 variable, got {len(variables)}")
+
     def build_derived_bands(self):
         for (band_name, band_expression) in self.derive_bands.items():
             from_bands = []
-            parsed_expression = self.parser.parse(band_expression)
+            try:
+                parsed_expression = self.parser.parse(band_expression)
+            except ExpressionParser.ParseError as ex:
+                raise ConfigError(f"derived band '{band_name}' has an invalid expression '{band_expression}': "
+                                  f"{ex.error_type} at position {ex.error_position}") from ex
             try:
                 arr = self.evaluate_expression(parsed_expression, from_bands)
             except Exception as ex:
@@ -443,7 +479,7 @@ class HTMLGenerator:
 
             n = len(self.input_ds[self.case_dimension])
 
-            p = Progress("Reading data")
+            p = Progress("Reading data", enabled=self.show_progress)
             for i in range(n):
                 p.report("", i/n)
                 # timestamp will be formatted YYYY-MM-DDT:HH:MM:SS
@@ -477,7 +513,7 @@ class HTMLGenerator:
                     layer_definition.build_legend(legend_path)
                     self.layer_legends[layer_definition.layer_name] = legend_src
 
-            p = Progress("Building images")
+            p = Progress("Building images", enabled=self.show_progress)
 
             static_image_srcs = {}
             static_data_srcs = {}
@@ -946,7 +982,7 @@ class HTMLGenerator:
                             elif aggregation_fn == "median":
                                 value = float(np.median(values.data))
                             else:
-                                raise Exception(f"Cannot apply unrecognised aggregation function {aggregation_fn}")
+                                raise ConfigError(f"timeseries '{timeseries_name}' uses unknown aggregation function '{aggregation_fn}'")
                             column = f"{source_mask}_{variable.replace(':', '_')}"
                             rowdata[column] = value
 
@@ -985,7 +1021,7 @@ class HTMLGenerator:
                     writer.writerow(headers)
 
                     if len(variable_names) != 1:
-                        raise Exception(f"Can only produce a seasonal plot for timeseries {timeseries_name} with 1 variable, got {len(variable_names)} variables")
+                        raise ConfigError(f"timeseries '{timeseries_name}' is seasonal, so it needs exactly 1 variable, got {len(variable_names)}")
 
                     for day in range(1,367):
                         values_by_year = {}

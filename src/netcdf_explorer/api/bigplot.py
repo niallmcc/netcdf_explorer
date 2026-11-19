@@ -54,8 +54,8 @@ class CMap:
 
 class BigPlot:
 
-    def __init__(self, data_array, x="x", y="Y", vmin=0, vmax=1, vformat="%02f", cmap_name="viridis", title="",  output_path="output.png", subtexts=[], legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
-                 subtheight=25, selectors={}, iselectors={}, font_path=None, border=20,  cchart=None, gamma=0.5):
+    def __init__(self, data_array, x="x", y="y", vmin=0, vmax=1, vformat="%02f", cmap_name="viridis", title="",  output_path="output.png", subtexts=None, legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
+                 subtheight=25, selectors=None, iselectors=None, font_path=None, border=20,  cchart=None, gamma=0.5):
         self.logger = logging.getLogger("BigPlot")
         self.data_array:xr.DataArray = data_array
         self.x = x
@@ -68,7 +68,7 @@ class BigPlot:
         self.legend_height = legend_height
         self.title = title
         self.output_path = output_path
-        self.subtexts = subtexts
+        self.subtexts = subtexts if subtexts is not None else []
         self.plot_width = plot_width
         self.flip = flip
         self.theight = theight
@@ -77,8 +77,8 @@ class BigPlot:
         self.cmap = None
         self.cchart = cchart
         self.gamma = gamma
-        self.selectors = selectors
-        self.iselectors = iselectors
+        self.selectors = selectors if selectors is not None else {}
+        self.iselectors = iselectors if iselectors is not None else {}
         self.font_path = font_path if font_path else os.path.join(os.path.split(__file__)[0],"..","misc","Roboto-Black.ttf")
         self.border = border
         if "rgb" not in self.data_array.dims:

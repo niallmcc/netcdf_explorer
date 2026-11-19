@@ -49,16 +49,17 @@ class ElementFragment(Fragment):
     Represent a generic HTML5 element node.
     """
 
-    def __init__(self, tag: str, attrs: typing.Dict[str, str] = {},
-                 style: typing.Dict[str, str] = {}):
+    def __init__(self, tag: str, attrs: typing.Optional[typing.Dict[str, str]] = None,
+                 style: typing.Optional[typing.Dict[str, str]] = None):
         self.tag = tag
-        self.attrs = attrs
-        self.style = style
+        # copy, so that set_attribute / set_style never change a dict owned by the caller
+        self.attrs = dict(attrs) if attrs else {}
+        self.style = dict(style) if style else {}
         self.child_fragments = []
 
 
-    def add_element(self, tag: str, attrs: typing.Dict[str, str] = {},
-                    style: typing.Dict[str, str] = {}) -> "ElementFragment":
+    def add_element(self, tag: str, attrs: typing.Optional[typing.Dict[str, str]] = None,
+                    style: typing.Optional[typing.Dict[str, str]] = None) -> "ElementFragment":
         """
         Add a child element fragment to this fragment
 

@@ -34,7 +34,7 @@ from PIL import Image
 class Thumbnail:
 
     def __init__(self, variable, cmap, vmin, vmax, x_coord, y_coord, plot_width, background_image_path=None, background_alpha=0.2,
-                 selector={}):
+                 selector=None):
         self.variable = variable
         self.background_image_path = background_image_path
         self.background_alpha = background_alpha
@@ -43,7 +43,7 @@ class Thumbnail:
         self.x_coord = x_coord
         self.y_coord = y_coord
         self.plot_width = plot_width
-        self.selector = selector
+        self.selector = selector if selector is not None else {}
 
         self.cmap_colours = []
 

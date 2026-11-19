@@ -27,7 +27,7 @@ import yaml
 import sys
 
 from netcdf_explorer.api.html_generator import HTMLGenerator
-
+from netcdf_explorer.api.config_error import ConfigError
 
 
 def main():
@@ -48,26 +48,38 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("generate_html")
+
+    if not (args.config_path.endswith(".yml") or args.config_path.endswith(".yaml")):
+        logger.error(f"Config file {args.config_path} should be in yaml (.yml or .yaml) format")
+        sys.exit(1)
 
     with open(args.config_path) as f:
-        if args.config_path.endswith(".yml") or args.config_path.endswith(".yaml"):
+        try:
             config = yaml.load(f, Loader=yaml.FullLoader)
-        else:
-            print("Error - config file should be yaml (.yml or .yaml) format")
-            sys.exit(-1)
-        dimensions = config.get("dimensions", {})
-        case_dimension = dimensions.get("case", None)
+        except yaml.YAMLError as ex:
+            logger.error(f"Config file {args.config_path} is not valid yaml: {ex}")
+            sys.exit(1)
 
-    if case_dimension is None:
-        print("Error - please provide a case dimension")
-        sys.exit(-1)
+    if not isinstance(config, dict):
+        logger.error(f"Config file {args.config_path} should contain a mapping of settings")
+        sys.exit(1)
+
+    if config.get("dimensions", {}).get("case", None) is None:
+        logger.error(f"Config file {args.config_path} should provide a case dimension (dimensions: case: ...)")
+        sys.exit(1)
 
     input_path = os.path.abspath(args.input_path)
     output_folder = os.path.abspath(args.output_folder)
 
-    g = HTMLGenerator(config, input_path, output_folder, title=args.title, add_download_link=args.download_data,
-                                 filter_controls=args.filter_controls, sample_count=args.sample_count, sample_cases=args.sample_cases)
-    g.run()
+    try:
+        g = HTMLGenerator(config, input_path, output_folder, title=args.title, add_download_link=args.download_data,
+                          filter_controls=args.filter_controls, sample_count=args.sample_count,
+                          sample_cases=args.sample_cases)
+        g.run()
+    except ConfigError as ex:
+        logger.error(f"Error in config file {args.config_path}: {ex}")
+        sys.exit(1)
 
 
 if __name__ == '__main__':
