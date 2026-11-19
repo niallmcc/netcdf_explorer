@@ -1029,7 +1029,7 @@ class HTMLGenerator:
         """Compute a timeseries' values for every case.
 
         Returns (rows, years): rows is a list of dicts holding "datetime", "timestamp" and a value for each column,
-        and years is the sorted list of years the cases fall in.
+        in time order, and years is the sorted list of years the cases fall in.
         """
         source_masks = timeseries_spec.get("masks", [])
         variables = timeseries_spec["variables"]
@@ -1069,6 +1069,9 @@ class HTMLGenerator:
                     rowdata[variable] = data_slice[variable].item()
 
             data.append(rowdata)
+
+        # cases are not necessarily in time order, for example when chosen with --sample-cases
+        data.sort(key=lambda rowdata: rowdata["datetime"])
 
         return (data, sorted(years))
 

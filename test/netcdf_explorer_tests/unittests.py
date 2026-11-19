@@ -124,11 +124,20 @@ class Test(unittest.TestCase):
         output_folder = os.path.join(self.output_dir, "area_293_output_sampled")
         run_cli("netcdf_explorer.cli.generate_html",
                 ["--input-path", INPUT_PATH, "--title", "area_293", "--output-folder", output_folder,
-                 "--config-path", CONFIG_PATH, "--sample-cases", "0", "2"], cwd=self.output_dir)
+                 "--config-path", CONFIG_PATH, "--sample-cases", "2", "0"], cwd=self.output_dir)
         with open(os.path.join(output_folder, "scenes.json")) as f:
             scenes = json.load(f)
         self.assertEqual(len(scenes["index"]), 2)
+        timestamps = [scene["timestamp"] for scene in scenes["index"]]
+        self.assertEqual(timestamps, sorted(timestamps), "cases should be in time order")
         self.assertFalse(os.path.exists(os.path.join(output_folder, os.path.basename(INPUT_PATH))))
+
+        # the timeseries CSV rows should also be in time order, whatever order the cases were selected in
+        with open(os.path.join(output_folder, "timeseries", "ST_cloudy.csv")) as f:
+            csv_timestamps = [line.split(",")[0] for line in f.read().splitlines()[1:]]
+        self.assertEqual(len(csv_timestamps), 2)
+        self.assertEqual(csv_timestamps, sorted(csv_timestamps))
+        self.assertEqual(csv_timestamps, timestamps)
 
     def test_bigplot(self):
         output_path = os.path.join(self.output_dir, "area_293_min.png")
