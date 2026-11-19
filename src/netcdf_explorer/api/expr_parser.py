@@ -22,7 +22,7 @@ class ExpressionParser:
 
     class ParseError(Exception):
 
-        def __init__(self, error_type, error_position, error_content):
+        def __init__(self, error_type, error_position, error_content=""):
             super().__init__(error_type)
             self.error_type = error_type
             self.error_position = error_position
@@ -261,15 +261,35 @@ class ExpressionParser:
         return prec_list
 
     def parse(self, s):
+        """Parse expression s, returning the parsed expression tree.
+
+        Raises:
+            ExpressionParser.ParseError: if the expression is not valid
+        """
         self.input = s
         try:
             self.lex()
+            self.check_parentheses()
             self.token_index = 0
             parsed = self.parse_expr()
             self.strip_debug(parsed)
             return parsed
+        except ExpressionParser.ParseError:
+            raise
         except Exception as ex:
-            return ex
+            raise ExpressionParser.ParseError("internal_error", self.index, str(ex)) from ex
+
+    def check_parentheses(self):
+        depth = 0
+        for (token_type, _, pos) in self.tokens:
+            if token_type == "open_parenthesis":
+                depth += 1
+            elif token_type == "close_parenthesis":
+                depth -= 1
+                if depth < 0:
+                    raise ExpressionParser.ParseError("unexpected_close_parenthesis", pos)
+        if depth > 0:
+            raise ExpressionParser.ParseError("unclosed_parenthesis", len(self.input))
 
     def get_parser_context(self):
         return {

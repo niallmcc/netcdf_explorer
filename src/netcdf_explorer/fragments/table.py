@@ -17,7 +17,7 @@ from ..htmlfive.html5_builder import ElementFragment
 
 class TableFragment(ElementFragment):
 
-    def __init__(self, attrs={},style={}):
+    def __init__(self, attrs=None, style=None):
         super().__init__("table",attrs,style)
         self.thead = self.add_element("thead")
         self.tbody = self.add_element("tbody")
@@ -29,7 +29,7 @@ class TableFragment(ElementFragment):
                 style["visibility"] = "collapse"
             self.add_element("col",attrs={"id":column_ids[idx]}, style=style)
 
-    def add_row(self, cells, tr_attrs={}, style={}):
+    def add_row(self, cells, tr_attrs=None, style=None):
         tr = self.tbody.add_element("tr", tr_attrs, style)
         if isinstance(cells,str):
             tr.add_element("td",attrs={"colspan":"100%"}).add_text(cells)

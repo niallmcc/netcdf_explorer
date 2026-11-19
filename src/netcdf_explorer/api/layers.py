@@ -34,6 +34,7 @@ import xarray as xr
 from .data_encoder import DataEncoder
 
 from .colours import colours_to_rgb, ColoursToRGB
+from .config_error import ConfigError, require
 
 def save_image(arr,vmin,vmax,path,cmap_name="coolwarm"):
     if not hasattr(cm,cmap_name):
@@ -161,14 +162,14 @@ class LayerGroup:
 
 class LayerBase:
 
-    def __init__(self, layer, converter, layer_name, layer_label, selectors={}):
+    def __init__(self, layer, converter, layer_name, layer_label, selectors=None):
         self.layer_name = layer_name
         self.layer_label = layer_label
         self.case_dimension = ""
         self.x_coordinate = ""
         self.y_coordinate = ""
         self.case_dimension = ""
-        self.selectors = selectors
+        self.selectors = selectors if selectors is not None else {}
         self.flipud = False
         self.fliplr = False
         self.converter = converter
@@ -523,27 +524,31 @@ class LayerFactory:
 
     @staticmethod
     def create(converter, layer_name, layer, in_layer_group=False):
-        layer_type = layer["type"]
+        if not isinstance(layer, dict):
+            raise ConfigError(f"layer '{layer_name}' should be a mapping of settings, got {type(layer).__name__}")
+        layer_type = require(layer, "type", "layer", layer_name)
         layer_label = layer.get("label", layer_name)
         selectors = layer.get("selectors", {})
         grid_view = layer.get("grid_view", True)
         overlay_view = layer.get("overlay_view", True)
         if layer_type == "layer_group":
             if in_layer_group:
-                raise Exception("Cannot nest layer groups")
+                raise ConfigError(f"layer group '{layer_name}' cannot be nested inside another layer group")
             sublayers = []
             for (sublayer_name, sublayer) in layer.get("layers",{}).items():
                 sublayers.append(LayerFactory.create(converter,layer_name+"_"+sublayer_name,sublayer,in_layer_group=True))
             if len(sublayers) == 0:
-                raise Exception("Layer group should contain at least one layer")
+                raise ConfigError(f"layer group '{layer_name}' should contain at least one layer")
             created_layer = LayerGroup(layer, converter, layer_name, layer_label, sublayers)
             for sublayer in sublayers:
                 sublayer.set_group(created_layer)
         elif layer_type == "single":
             layer_band = layer.get("band", layer_name)
-            vmin = layer["min_value"]
-            vmax = layer["max_value"]
+            vmin = require(layer, "min_value", "layer", layer_name)
+            vmax = require(layer, "max_value", "layer", layer_name)
             cmap = layer.get("cmap", "coolwarm")
+            if not hasattr(cm, cmap):
+                raise ConfigError(f"layer '{layer_name}' has unknown cmap '{cmap}', should be the name of a matplotlib colour map")
             data = layer.get("data", None)
             created_layer = LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap, data)
         elif layer_type == "mask":
@@ -551,12 +556,12 @@ class LayerFactory:
             if "colour" in layer:
                 colour = layer["colour"]
                 if colour in colours_to_rgb:
-                    rgb = colours_to_rgb[layer["colour"]]
+                    rgb = colours_to_rgb[colour]
                     r = rgb["r"]
                     g = rgb["g"]
                     b = rgb["b"]
                 else:
-                    raise Exception(f"Unknown colour {colour}")
+                    raise ConfigError(f"layer '{layer_name}' has unknown colour '{colour}'")
             else:
                 r = layer.get("r",0)
                 g = layer.get("g",0)
@@ -564,9 +569,9 @@ class LayerFactory:
 
             created_layer = LayerMask(layer, converter, layer_name, layer_label, selectors, layer_band, r, g, b)
         elif layer_type == "rgb":
-            red_band = layer["red_band"]
-            green_band = layer["green_band"]
-            blue_band = layer["blue_band"]
+            red_band = require(layer, "red_band", "layer", layer_name)
+            green_band = require(layer, "green_band", "layer", layer_name)
+            blue_band = require(layer, "blue_band", "layer", layer_name)
             red_gamma = layer.get("red_gamma",0.5)
             green_gamma = layer.get("green_gamma",0.5)
             blue_gamma = layer.get("blue_gamma",0.5)
@@ -581,10 +586,10 @@ class LayerFactory:
                     low_percentile=low_percentile, high_percentile=high_percentile)
         elif layer_type == "discrete":
             layer_band = layer.get("band", layer_name)
-            values = layer["values"]
+            values = require(layer, "values", "layer", layer_name)
             created_layer = LayerDiscrete(layer, converter, layer_name, layer_label, selectors, layer_band, values)
         elif layer_type == "wms":
-            url = layer["url"]
+            url = require(layer, "url", "layer", layer_name)
             scale = layer.get("scale", 1)
             created_layer = LayerWMS(layer, converter, layer_name, layer_label, url, scale)
         elif layer_type == "vector":
@@ -594,10 +599,11 @@ class LayerFactory:
             colour = layer.get("colour",[0,0,0,255])
             created_layer = LayerVector(layer, converter, layer_name, layer_label, selectors, layer_band, scale=scale, thickness=thickness,colour=colour)
         elif layer_type == "static_image":
-            image_path = layer.get("image_path")
+            image_path = require(layer, "image_path", "layer", layer_name)
             created_layer = LayerStaticImage(layer, converter, layer_name, layer_label, selectors, image_path)
         else:
-            raise Exception(f"Unknown layer type {layer_type}")
+            raise ConfigError(f"layer '{layer_name}' has unknown type '{layer_type}', should be one of: "
+                              "single, mask, rgb, discrete, wms, vector, static_image, layer_group")
         if not in_layer_group:
             created_layer.set_grid_view(grid_view)
             created_layer.set_overlay_view(overlay_view)

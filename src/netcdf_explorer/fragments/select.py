@@ -17,7 +17,7 @@ from ..htmlfive.html5_builder import ElementFragment
 
 class SelectFragment(ElementFragment):
 
-    def __init__(self, attrs={},style={}):
+    def __init__(self, attrs=None, style=None):
         super().__init__("select",attrs,style)
 
     def add_option(self, option_value, option_label, is_selected):
