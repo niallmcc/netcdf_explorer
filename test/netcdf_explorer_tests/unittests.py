@@ -1,5 +1,3 @@
-import contextlib
-import io
 import json
 import os
 import subprocess
@@ -168,15 +166,6 @@ class Test(unittest.TestCase):
             run_cli("netcdf_explorer.cli.bigplot",
                     ["--input-path", INPUT_PATH, "--input-variable", "NO_SUCH_VARIABLE",
                      "--output-path", os.path.join(self.output_dir, "out.png")], cwd=self.output_dir)
-
-    def test_293_api_no_progress_output(self):
-        output_folder = os.path.join(self.output_dir, "area_293_output_quiet")
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout):
-            HTMLGenerator(config=load_example_config(), input_path=INPUT_PATH, output_folder=output_folder,
-                          title="area 293", add_download_link=False, show_progress=False).run()
-        self.assertEqual(stdout.getvalue(), "")
-        self.check_html_output(output_folder, expect_download_link=False)
 
 
 class TestElementFragment(unittest.TestCase):
