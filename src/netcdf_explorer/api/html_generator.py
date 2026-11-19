@@ -40,9 +40,6 @@ from .layers import LayerFactory, LayerSingleBand, LayerWMS, LayerDiscrete
 from .expr_parser import ExpressionParser
 from .config_error import ConfigError, require
 
-AGGREGATION_FUNCTIONS = ("mean", "min", "max", "median")
-TIMESERIES_TYPES = ("timeseries", "seasonal")
-
 from netcdf_explorer.htmlfive.html5_builder import Html5Builder, ElementFragment
 
 from netcdf_explorer.fragments.utils import anti_aliasing_style
@@ -50,6 +47,9 @@ from netcdf_explorer.fragments.image import ImageFragment
 from netcdf_explorer.fragments.table import TableFragment
 from netcdf_explorer.fragments.legend import LegendFragment
 from netcdf_explorer.fragments.select import SelectFragment
+
+AGGREGATION_FUNCTIONS = ("mean", "min", "max", "median")
+TIMESERIES_TYPES = ("timeseries", "seasonal")
 
 src_folder = os.path.split(__file__)[0]
 
