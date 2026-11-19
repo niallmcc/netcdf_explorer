@@ -998,116 +998,125 @@ class HTMLGenerator:
             month_filter.add_element("input", {"id": f"month{month}", "type": "checkbox", "checked": "checked"})
 
     def build_timeseries_csv(self):
+        """Write a CSV file for each timeseries, in the timeseries/ folder."""
         folder = os.path.join(self.output_folder, "timeseries")
         os.makedirs(folder, exist_ok=True)
 
         for (timeseries_name, timeseries_spec, timeseries_detail) in self.timeseries_definitions:
             csv_path = os.path.join(folder, timeseries_name + ".csv")
-            source_masks = timeseries_spec.get("masks", [])
-            variables = timeseries_spec["variables"]
             timeseries_type = timeseries_spec.get("type","timeseries")
 
-            data = []
-            n = len(self.input_ds[self.time_coordinate])
-
-            years = set()
-
-            for i in range(n):
-                timestamp = str(self.input_ds[self.time_coordinate].data[i])[:19] if self.time_coordinate else None
-
-                data_slice = self.input_ds.isel(**{self.case_dimension: i})
-
-                dt = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
-                years.add(dt.year)
-
-                rowdata = {"datetime": dt, "timestamp": timestamp}
-
-                if source_masks:
-                    # build a timseries for each combination of mask and variable
-                    for source_mask in source_masks:
-                        mask_slice = self.input_ds[source_mask].squeeze()
-                        if self.case_dimension in mask_slice.dims:
-                            mask_slice = mask_slice.isel(**{self.case_dimension: i})
-
-                        for variable in variables:
-                            variable_components = variable.split(":")
-                            variable_name = variable_components[0]
-                            if len(variable_components) == 2:
-                                aggregation_fn = variable_components[1]
-                            else:
-                                aggregation_fn = "mean"
-                            values = xr.where(mask_slice, data_slice[variable_name], np.nan)
-                            if aggregation_fn == "mean":
-                                value = values.mean(skipna=True).item()
-                            elif aggregation_fn == "min":
-                                value = values.min(skipna=True).item()
-                            elif aggregation_fn == "max":
-                                value = values.max(skipna=True).item()
-                            elif aggregation_fn == "median":
-                                value = float(np.median(values.data))
-                            else:
-                                raise ConfigError(f"timeseries '{timeseries_name}' uses unknown aggregation function '{aggregation_fn}'")
-                            column = f"{source_mask}_{variable.replace(':', '_')}"
-                            rowdata[column] = value
-
-                else:
-                    for variable in variables:
-                        value = data_slice[variable].item()
-                        rowdata[variable] = value
-
-                data.append(rowdata)
-
-            years = sorted(list(years))
+            (data, years) = self.collect_timeseries_rows(timeseries_name, timeseries_spec)
+            column_names = self.timeseries_column_names(timeseries_spec)
 
             with open(csv_path, "w") as f:
                 writer = csv.writer(f)
-                variable_names = []
-                if source_masks:
-                    for source_mask in source_masks:
-                        for variable in variables:
-                            variable_names.append(f"{source_mask}_{variable.replace(':', '_')}")
-                else:
-                    variable_names = variables
-
                 if timeseries_type == "timeseries":
-                    headers = ["datetime"] + variable_names
-                    writer.writerow(headers)
-                    for rowdata in data:
-                        row = [rowdata["timestamp"]]
-                        for header in headers[1:]:
-                            v = rowdata.get(header,"")
-                            if math.isnan(v):
-                                v = ""
-                            row.append(v)
-                        writer.writerow(row)
+                    self.write_timeseries_rows(writer, data, column_names)
                 elif timeseries_type == "seasonal":
-                    headers = ["day"]+years
-                    writer.writerow(headers)
-
-                    if len(variable_names) != 1:
-                        raise ConfigError(f"timeseries '{timeseries_name}' is seasonal, so it needs exactly 1 variable, got {len(variable_names)}")
-
-                    for day in range(1,367):
-                        values_by_year = {}
-                        for rowdata in data:
-                            dt = rowdata["datetime"]
-                            year = dt.year
-                            doy = dt.timetuple()[7]
-                            if doy == day:
-                                values_by_year[year] = rowdata[variable_names[0]]
-
-                        row = [day]
-                        for year in years:
-                            if year in values_by_year:
-                                v = values_by_year[year]
-                                if math.isnan(v):
-                                    v = ""
-                                row.append(v)
-                            else:
-                                row.append("")
-                        writer.writerow(row)
+                    if len(column_names) != 1:
+                        raise ConfigError(f"timeseries '{timeseries_name}' is seasonal, so it needs exactly 1 variable, got {len(column_names)}")
+                    self.write_seasonal_rows(writer, data, years, column_names[0])
 
             timeseries_detail["csv_url"] = os.path.join("timeseries", timeseries_name + ".csv")
+
+    @staticmethod
+    def timeseries_column_names(timeseries_spec):
+        """Return the names of a timeseries' value columns: one per variable, or one per (mask, variable) pair."""
+        source_masks = timeseries_spec.get("masks", [])
+        variables = timeseries_spec["variables"]
+        if not source_masks:
+            return variables
+        return [f"{source_mask}_{variable.replace(':', '_')}" for source_mask in source_masks for variable in variables]
+
+    def collect_timeseries_rows(self, timeseries_name, timeseries_spec):
+        """Compute a timeseries' values for every case.
+
+        Returns (rows, years): rows is a list of dicts holding "datetime", "timestamp" and a value for each column,
+        and years is the sorted list of years the cases fall in.
+        """
+        source_masks = timeseries_spec.get("masks", [])
+        variables = timeseries_spec["variables"]
+
+        data = []
+        n = len(self.input_ds[self.time_coordinate])
+
+        years = set()
+
+        for i in range(n):
+            timestamp = str(self.input_ds[self.time_coordinate].data[i])[:19] if self.time_coordinate else None
+
+            data_slice = self.input_ds.isel(**{self.case_dimension: i})
+
+            dt = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
+            years.add(dt.year)
+
+            rowdata = {"datetime": dt, "timestamp": timestamp}
+
+            if source_masks:
+                # build a timseries for each combination of mask and variable
+                for source_mask in source_masks:
+                    mask_slice = self.input_ds[source_mask].squeeze()
+                    if self.case_dimension in mask_slice.dims:
+                        mask_slice = mask_slice.isel(**{self.case_dimension: i})
+
+                    for variable in variables:
+                        variable_components = variable.split(":")
+                        variable_name = variable_components[0]
+                        aggregation_fn = variable_components[1] if len(variable_components) == 2 else "mean"
+                        values = xr.where(mask_slice, data_slice[variable_name], np.nan)
+                        column = f"{source_mask}_{variable.replace(':', '_')}"
+                        rowdata[column] = self.aggregate(timeseries_name, values, aggregation_fn)
+
+            else:
+                for variable in variables:
+                    rowdata[variable] = data_slice[variable].item()
+
+            data.append(rowdata)
+
+        return (data, sorted(years))
+
+    @staticmethod
+    def aggregate(timeseries_name, values, aggregation_fn):
+        """Reduce a masked array of values to a single number using the named aggregation function."""
+        if aggregation_fn == "mean":
+            return values.mean(skipna=True).item()
+        elif aggregation_fn == "min":
+            return values.min(skipna=True).item()
+        elif aggregation_fn == "max":
+            return values.max(skipna=True).item()
+        elif aggregation_fn == "median":
+            return float(np.median(values.data))
+        else:
+            raise ConfigError(f"timeseries '{timeseries_name}' uses unknown aggregation function '{aggregation_fn}'")
+
+    @staticmethod
+    def csv_value(v):
+        """Format a value for the CSV files, writing NaN as an empty cell."""
+        return "" if math.isnan(v) else v
+
+    def write_timeseries_rows(self, writer, data, column_names):
+        """Write a timeseries CSV: a datetime column, then one column per value, with one row per case."""
+        headers = ["datetime"] + column_names
+        writer.writerow(headers)
+        for rowdata in data:
+            writer.writerow([rowdata["timestamp"]] + [self.csv_value(rowdata.get(header,"")) for header in headers[1:]])
+
+    def write_seasonal_rows(self, writer, data, years, column_name):
+        """Write a seasonal CSV: one row per day of the year (1-366) and one column per year."""
+        writer.writerow(["day"] + years)
+
+        for day in range(1,367):
+            values_by_year = {}
+            for rowdata in data:
+                dt = rowdata["datetime"]
+                if dt.timetuple()[7] == day:
+                    values_by_year[dt.year] = rowdata[column_name]
+
+            row = [day]
+            for year in years:
+                row.append(self.csv_value(values_by_year[year]) if year in values_by_year else "")
+            writer.writerow(row)
 
     def build_timeseries_view(self, timeseries_container_div, builder):
         if self.layer_definitions:
