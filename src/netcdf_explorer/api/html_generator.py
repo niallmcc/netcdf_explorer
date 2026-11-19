@@ -657,7 +657,7 @@ class HTMLGenerator:
         if self.terrain_view:
             scenes["terrain_view"] = self.terrain_view
 
-        for layer_definition in self.flatten_layers(self.layer_definitions):
+        for layer_definition in self.page_order_layers():
             layer_dict = {"name": layer_definition.layer_name, "label": layer_definition.layer_label, "has_data": layer_definition.save_data()}
             if isinstance(layer_definition,LayerWMS):
                 layer_dict["wms_url"] = layer_definition.wms_url
@@ -666,9 +666,9 @@ class HTMLGenerator:
                 for (k,v) in layer_definition.values.items():
                     (label,colour) = v
                     layer_dict["classes"][k] = { "label": label, "colour": ColoursToRGB.to_hex(ColoursToRGB.lookup(colour)) }
-            scenes["layers"].insert(0, layer_dict)
+            scenes["layers"].append(layer_dict)
 
-        for layer_definition in self.flatten_layers(self.layer_definitions):
+        for layer_definition in self.page_order_layers()[::-1]:
             group = layer_definition.get_group()
             if group:
                 group_layer_name = group.layer_name
@@ -684,7 +684,7 @@ class HTMLGenerator:
 
             scene_dict = {"timestamp": timestamp if timestamp is not None else "", "image_srcs": layer_sources,
                                "data_srcs": data_sources, "info": info, "pos":index}
-            for layer_definition in self.flatten_layers(self.layer_definitions):
+            for layer_definition in self.page_order_layers()[::-1]:
                 if isinstance(layer_definition, LayerWMS):
                     ((x_min, y_min), (x_max, y_max)) = layer_definition.get_bounds(ds)
                     scene_dict["x_min"] = x_min
@@ -715,7 +715,62 @@ class HTMLGenerator:
         with open(os.path.join(self.output_folder, "timeseries.json"), "w") as f:
             f.write(json.dumps(timeseries, indent=4))
 
+    def page_order_layers(self, only_grid_view=False):
+        """Return the layers in the order the grid view and scenes.json list them.
+
+        Top-level layers are in configuration order, but the layers inside each layer group are in reverse order.
+        (This preserves the order the page has always used.)
+        """
+        return self.flatten_layers(self.layer_definitions[::-1], only_grid_view=only_grid_view)[::-1]
+
+    def has_data_layers(self):
+        """Return True if any single band layer saves its data, so the page can show data values."""
+        for layer_definition in self.flatten_layers(self.layer_definitions):
+            if layer_definition.has_legend():
+                if isinstance(layer_definition,LayerSingleBand) and layer_definition.save_data():
+                    return True
+        return False
+
+    @staticmethod
+    def add_spacer(div):
+        div.add_element("span", {"class": "spacer"}).add_text("|")
+
+    def add_date_picker(self, div, element_id):
+        """Add a date input limited to the range of the cases' timestamps, if they are known."""
+        if self.min_timestamp is not None and self.max_timestamp is not None:
+            self.add_spacer(div)
+            div.add_element("input",
+                {"type":"date", "id":element_id,"min":self.min_timestamp[:10],"max":self.max_timestamp[:10]})
+
+    def add_download_anchor(self, div, link_text):
+        """Add a link to download the input data, if a download link was created."""
+        if self.download_filename:
+            self.add_spacer(div)
+            div.add_element("a", {"href": self.download_filename,
+                                  "download": self.download_filename}).add_text(link_text)
+
+    @staticmethod
+    def add_control_panel(parent, panel_id, title, close_button_id):
+        """Add a control panel container with a title bar and close button, returning the panel."""
+        panel = parent.add_element("div", {"id": panel_id, "class": "control_container"})
+        panel.add_element("div", {"id": panel_id + "_header", "class": "control_container_header"}).add_text(
+            title).add_element("input",{"type":"button","id":close_button_id,"value":"X","class":"close_button"})
+        return panel
+
+    @staticmethod
+    def add_group_select(parent, group, layer_definition, select_id):
+        """Add a select control for choosing which layer of a layer group to show."""
+        sf = SelectFragment({"id": select_id})
+        for layer in group.get_layers():
+            sf.add_option(layer.layer_name, layer.layer_label,
+                          is_selected=(layer.layer_name == layer_definition.layer_name))
+        parent.add_fragment(sf)
+
     def build_grid_view(self, grid_container_div, builder, image_width, image_height, display_timeseries=False):
+        self.build_grid_toolbar(grid_container_div, display_timeseries)
+        grid_container_div.add_fragment(self.build_grid_table(image_width, image_height))
+
+    def build_grid_toolbar(self, grid_container_div, display_timeseries):
         grid_container_div.add_element("input",
                                        {"type": "button", "id": "overlay_view_btn", "value": "Show Overlay View"})
         if display_timeseries:
@@ -724,23 +779,19 @@ class HTMLGenerator:
 
         grid_container_div.add_element("span").add_text(self.title)
 
-        if self.min_timestamp is not None and self.max_timestamp is not None:
-            grid_container_div.add_element("span", {"class": "spacer"}).add_text("|")
-            grid_container_div.add_element("input",
-                {"type":"date", "id":"grid_select_date","min":self.min_timestamp[:10],"max":self.max_timestamp[:10]})
+        self.add_date_picker(grid_container_div, "grid_select_date")
+        self.add_download_anchor(grid_container_div, "download data")
 
-        if self.download_filename:
-            grid_container_div.add_element("span", {"class": "spacer"}).add_text("|")
-            grid_container_div.add_element("a", {"href": self.download_filename,
-                                                 "download": self.download_filename}).add_text("download data")
-
-        grid_container_div.add_element("span", {"class": "spacer"}).add_text("|")
+        self.add_spacer(grid_container_div)
         grid_container_div.add_element("button", {"id": "prev_page_btn"}).add_text("Previous page")
         grid_container_div.add_element("input", {"type": "range", "id": "page_index"})
         grid_container_div.add_element("button", {"id": "next_page_btn"}).add_text("Next Page")
         grid_container_div.add_element("span", {"id": "page_label"}).add_text("1/1")
         grid_container_div.add_element("input", {"id":"page_size", "type": "number", "value":"10", "min":"1", "step":"1"}).add_text("Page Size")
 
+    def build_grid_table(self, image_width, image_height):
+        """Build the grid view's table: one column per layer and one row per case."""
+        grid_layers = self.page_order_layers(only_grid_view=True)
 
         tf = TableFragment()
 
@@ -752,15 +803,11 @@ class HTMLGenerator:
             columns_hidden += [False]
 
         groups = set()
-
-        for layer_definition in self.flatten_layers(self.layer_definitions, only_grid_view=True)[::-1]:
+        for layer_definition in grid_layers:
             group = layer_definition.get_group()
-            columm_id = layer_definition.layer_name + "_col"
-            column_ids.append(columm_id)
-            if group and group in groups:
-                columns_hidden.append(True) # this column is one of a group and not the first, hide it initially
-            else:
-                columns_hidden.append(False)
+            column_ids.append(layer_definition.layer_name + "_col")
+            # if this column is one of a group and not the first, hide it initially
+            columns_hidden.append(bool(group and group in groups))
             if group:
                 groups.add(group)
 
@@ -769,108 +816,103 @@ class HTMLGenerator:
         header_cells = ["Index"]
         if self.info:
             header_cells.append("Info")
-
-        for layer_definition in self.flatten_layers(self.layer_definitions,only_grid_view=True)[::-1]:
-            label = layer_definition.layer_label
-            group = layer_definition.get_group()
-            if group:
-                label = group.layer_label
-            header_div = ElementFragment("div")
-            if layer_definition.layer_name in self.layer_legends:
-                img = ImageFragment(self.layer_legends[layer_definition.layer_name],
-                                    layer_definition.layer_name + "_grid_legend", alt_text="legend",
-                                    w=self.grid_image_width if self.grid_image_width else image_width)
-                vmin = getattr(layer_definition, "vmin", None)
-                vmax = getattr(layer_definition, "vmax", None)
-                header_div.add_fragment(LegendFragment(label, img, vmin, vmax))
-            else:
-                label_fragment = ElementFragment("span").add_text(label)
-                header_div.add_fragment(label_fragment)
-            group = layer_definition.get_group()
-            if group:
-                sf = SelectFragment({"id": layer_definition.layer_name + "_group_select"})
-                for layer in group.get_layers():
-                    sf.add_option(layer.layer_name, layer.layer_label,
-                                  is_selected=(layer.layer_name == layer_definition.layer_name))
-                header_div.add_fragment(ElementFragment("br"))
-                header_div.add_fragment(sf)
-            header_cells.append(header_div)
-
+        for layer_definition in grid_layers:
+            header_cells.append(self.build_grid_header_cell(layer_definition, image_width))
         tf.add_header_row(header_cells)
 
         button_cells = [""]
         if self.info:
             button_cells.append("")
-
-        for layer_definition in self.flatten_layers(self.layer_definitions, only_grid_view=True)[::-1]:
+        for layer_definition in grid_layers:
             button_cells.append(
                 ElementFragment("button", {"id": layer_definition.layer_name + "_hide"}).add_text("Hide"))
-
         tf.add_header_row(button_cells)
 
-        row = 0
-        for (index, timestamp, layer_sources, _, ds) in self.layer_images:
+        width = self.grid_image_width if self.grid_image_width else image_width
+        height = round(self.grid_image_width * (image_height/image_width)) if self.grid_image_width else image_height
+
+        for (row, (index, timestamp, layer_sources, _, ds)) in enumerate(self.layer_images):
             cells = [self.generate_index_cell(row)]
             if self.info:
                 cells += [self.generate_info_table(index,ds)]
 
-            for layer_definition in self.flatten_layers(self.layer_definitions,only_grid_view=True)[::-1]:
-                src = layer_sources[layer_definition.layer_name]
-                width = self.grid_image_width if self.grid_image_width else image_width
-                height = round(self.grid_image_width * (image_height/image_width)) if self.grid_image_width else image_height
+            for layer_definition in grid_layers:
                 img = ImageFragment("", layer_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
                                     w=width,
                                     h=height,
-                                    load_url=src)
+                                    load_url=layer_sources[layer_definition.layer_name])
                 div = ElementFragment("div",{"style":f"width:{width}px;height:{height}px;"})
                 div.add_fragment(img)
                 cells.append(div)
 
             tf.add_row(cells, {"id":f"row{row}"}, {"display":"none"})
-            row += 1
 
-        grid_container_div.add_fragment(tf)
+        return tf
+
+    def build_grid_header_cell(self, layer_definition, image_width):
+        """Build a grid column heading: the layer's legend (or label) and, for a layer group, a layer selector."""
+        group = layer_definition.get_group()
+        label = group.layer_label if group else layer_definition.layer_label
+        header_div = ElementFragment("div")
+        if layer_definition.layer_name in self.layer_legends:
+            img = ImageFragment(self.layer_legends[layer_definition.layer_name],
+                                layer_definition.layer_name + "_grid_legend", alt_text="legend",
+                                w=self.grid_image_width if self.grid_image_width else image_width)
+            vmin = getattr(layer_definition, "vmin", None)
+            vmax = getattr(layer_definition, "vmax", None)
+            header_div.add_fragment(LegendFragment(label, img, vmin, vmax))
+        else:
+            header_div.add_fragment(ElementFragment("span").add_text(label))
+        if group:
+            header_div.add_fragment(ElementFragment("br"))
+            self.add_group_select(header_div, group, layer_definition, layer_definition.layer_name + "_group_select")
+        return header_div
 
     def generate_index_cell(self, index):
         return ElementFragment("button",attrs={"id":f"open_{index}_btn"}).add_text("Open: "+str(index+1))
 
     def build_overlay_view(self, overlay_container_div, builder, image_width, image_height):
+        has_data = self.has_data_layers()
 
+        self.build_overlay_toolbar(overlay_container_div, has_data)
+        self.build_layer_controls(overlay_container_div)
+
+        if self.filter_controls:
+            self.build_filter_controls(overlay_container_div)
+
+        if self.info:
+            info_div = self.add_control_panel(overlay_container_div, "info_container", "Scene Info", "close_info_btn")
+            info_div.add_element("div", attrs={"id":"info_content"})
+
+        if has_data:
+            data_div = self.add_control_panel(overlay_container_div, "data_container", "Data", "close_data_btn")
+            data_div.add_element("div", attrs={"id":"data_content"})
+
+        overlay_container_div.add_element("div",{"id":"map"})
+
+    def build_overlay_toolbar(self, overlay_container_div, has_data):
         overlay_container_div.add_element("input", {"type": "button", "id": "grid_view_btn", "value": "Show Grid View"})
         overlay_container_div.add_element("span").add_text(self.title)
 
-        if self.download_filename:
-            overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
-            overlay_container_div.add_element("a", {"href": self.download_filename,
-                                                    "download": self.download_filename}).add_text(
-                "download netcdf4")
+        self.add_download_anchor(overlay_container_div, "download netcdf4")
 
-        has_data = False
-        for layer_definition in self.flatten_layers(self.layer_definitions):
-            if layer_definition.has_legend():
-                if isinstance(layer_definition,LayerSingleBand) and layer_definition.save_data():
-                    has_data = True
-                    break
-
-        overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
+        self.add_spacer(overlay_container_div)
         overlay_container_div.add_element("button", {"id": "prev_btn"}).add_text("Previous")
         overlay_container_div.add_element("input", {"type": "range", "id": "time_index"})
         overlay_container_div.add_element("button", {"id": "next_btn"}).add_text("Next")
         overlay_container_div.add_element("span", {"id": "scene_label"}).add_text("?")
-        if self.min_timestamp is not None and self.max_timestamp is not None:
-            overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
-            overlay_container_div.add_element("input",
-                {"type":"date", "id":"overlay_select_date","min":self.min_timestamp[:10],"max":self.max_timestamp[:10]})
 
-        overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
+        self.add_date_picker(overlay_container_div, "overlay_select_date")
+
+        self.add_spacer(overlay_container_div)
 
         if self.terrain_view:
             overlay_container_div.add_element("button", {"id": "terrain_view_btn"}).add_text("Terrain View")
-            overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
+            self.add_spacer(overlay_container_div)
 
         overlay_container_div.add_element("input", {"type": "button", "id": "show_layers", "value": "Layer Controls"})
 
-        overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
+        self.add_spacer(overlay_container_div)
 
         if self.filter_controls:
             overlay_container_div.add_element("input", {"type": "button", "id": "show_filters", "value":"Filter Controls"})
@@ -881,9 +923,9 @@ class HTMLGenerator:
         if has_data:
             overlay_container_div.add_element("input", {"type": "button", "id": "show_data", "value": "Show Data"})
 
-        controls_div = overlay_container_div.add_element("div", {"id": "layer_container", "class": "control_container"})
-        controls_div.add_element("div", {"id": "layer_container_header", "class": "control_container_header"}).add_text(
-            "Layers").add_element("input",{"type":"button","id":"close_layer_btn","value":"X","class":"close_button"})
+    def build_layer_controls(self, overlay_container_div):
+        """Build the Layers panel: a row of controls (opacity, legend, colour map) for each overlay layer."""
+        controls_div = self.add_control_panel(overlay_container_div, "layer_container", "Layers", "close_layer_btn")
 
         slider_fieldset = controls_div.add_element("fieldset", style={"display": "inline"})
         slider_fieldset.add_element("legend").add_text("Layers")
@@ -893,96 +935,67 @@ class HTMLGenerator:
 
         groups = set()
         for layer_definition in self.flatten_layers(self.layer_definitions, only_overlay_view=True):
-
             group = layer_definition.get_group()
-            style = {}
-            if group and group in groups:
-                style["display"] = "none"
+            # only the first layer of a group is shown initially
+            hidden = bool(group and group in groups)
             if group:
                 groups.add(group)
+            self.build_layer_control_row(slider_table, layer_definition, hidden)
 
-            row = slider_table.add_element("tr", attrs={"id":layer_definition.layer_name+"_overlay_row"},style=style)
-            col1 = row.add_element("td")
-            col2 = row.add_element("td")
-            col3 = row.add_element("td")
-            col4 = row.add_element("td")
-            col5 = row.add_element("td")
-            col6 = row.add_element("td")
+    def build_layer_control_row(self, slider_table, layer_definition, hidden):
+        group = layer_definition.get_group()
+        style = {"display": "none"} if hidden else {}
 
-            if group:
-                col1.add_text(group.layer_label)
-                sf = SelectFragment({"id": layer_definition.layer_name + "_group_select_row"})
-                for layer in group.get_layers():
-                    sf.add_option(layer.layer_name, layer.layer_label,
-                                  is_selected=(layer.layer_name == layer_definition.layer_name))
-                col1.add_fragment(sf)
+        row = slider_table.add_element("tr", attrs={"id":layer_definition.layer_name+"_overlay_row"},style=style)
+        (col1, col2, col3, col4, col5, col6) = [row.add_element("td") for _ in range(6)]
+
+        if group:
+            col1.add_text(group.layer_label)
+            self.add_group_select(col1, group, layer_definition, layer_definition.layer_name + "_group_select_row")
+        else:
+            col1.add_text(layer_definition.layer_label)
+
+        opacity_control_id = layer_definition.layer_name + "_opacity"
+        col2.add_element("input", {"type": "range", "id": opacity_control_id})
+
+        if layer_definition.has_legend():
+            layer_has_data = isinstance(layer_definition,LayerSingleBand) and layer_definition.save_data()
+            legend_src = self.layer_legends[layer_definition.layer_name]
+            if layer_has_data:
+                col3.add_element("input",{"type":"number","value":str(layer_definition.vmin),"id":layer_definition.layer_name+"_min_input"})
             else:
-                col1.add_text(layer_definition.layer_label)
+                col3.add_element("span").add_text(str(layer_definition.vmin))
+            col4.add_element("img", {"src": legend_src, "class": "legend", "id":layer_definition.layer_name+"_legend_img"})
+            if layer_has_data:
+                col5.add_element("input", {"type": "number", "value": str(layer_definition.vmax),
+                                           "id": layer_definition.layer_name + "_max_input"})
+            else:
+                col5.add_element("span").add_text(str(layer_definition.vmax))
+            if layer_has_data:
+                selector_control_id = layer_definition.layer_name+"_camp_selector"
+                cmap_selector = col6.add_element("select",{"id":selector_control_id})
+                for cmap in self.all_cmaps:
+                    option_attrs = {"value":cmap}
+                    if cmap == layer_definition.get_cmap():
+                        option_attrs["selected"] = "selected"
+                    cmap_selector.add_element("option",option_attrs).add_text(cmap)
 
-            opacity_control_id = layer_definition.layer_name + "_opacity"
-            col2.add_element("input", {"type": "range", "id": opacity_control_id})
+        elif isinstance(layer_definition,LayerDiscrete):
+            col4.add_element("div", {"id":layer_definition.layer_name+"_classes"})
 
-            if layer_definition.has_legend():
-                layer_has_data = isinstance(layer_definition,LayerSingleBand) and layer_definition.save_data()
-                legend_src = self.layer_legends[layer_definition.layer_name]
-                if layer_has_data:
-                    col3.add_element("input",{"type":"number","value":str(layer_definition.vmin),"id":layer_definition.layer_name+"_min_input"})
-                else:
-                    col3.add_element("span").add_text(str(layer_definition.vmin))
-                col4.add_element("img", {"src": legend_src, "class": "legend", "id":layer_definition.layer_name+"_legend_img"})
-                if layer_has_data:
-                    col5.add_element("input", {"type": "number", "value": str(layer_definition.vmax),
-                                               "id": layer_definition.layer_name + "_max_input"})
-                else:
-                    col5.add_element("span").add_text(str(layer_definition.vmax))
-                if layer_has_data:
-                    selector_control_id = layer_definition.layer_name+"_camp_selector"
-                    cmap_selector = col6.add_element("select",{"id":selector_control_id})
-                    for cmap in self.all_cmaps:
-                        option_attrs = {"value":cmap}
-                        if cmap == layer_definition.get_cmap():
-                            option_attrs["selected"] = "selected"
-                        cmap_selector.add_element("option",option_attrs).add_text(cmap)
+    def build_filter_controls(self, overlay_container_div):
+        """Build the Scene Filters panel, with a checkbox for each month."""
+        filter_div = self.add_control_panel(overlay_container_div, "filter_container", "Scene Filters", "close_filter_btn")
 
-            elif isinstance(layer_definition,LayerDiscrete):
-                col4.add_element("div", {"id":layer_definition.layer_name+"_classes"})
+        filter_fieldset = filter_div.add_element("fieldset", style={"display": "inline"})
+        filter_fieldset.add_element("legend").add_text("Filters")
 
+        month_filter = filter_fieldset.add_element("div", {})
 
-        if self.filter_controls:
-            filter_div = overlay_container_div.add_element("div", {"id": "filter_container", "class": "control_container"})
-            filter_div.add_element("div", {"id": "filter_container_header", "class": "control_container_header"}).add_text(
-                "Scene Filters").add_element("input",{"type":"button","id":"close_filter_btn","value":"X","class":"close_button"})
-
-            filter_fieldset = filter_div.add_element("fieldset", style={"display": "inline"})
-            filter_fieldset.add_element("legend").add_text("Filters")
-
-            month_filter = filter_fieldset.add_element("div", {})
-
-            for month in range(0, 12):
-                month_name = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month]
-                month_filter.add_element("span").add_text(month_name)
-                month_filter.add_element("input", {"id": f"month{month + 1}", "type": "checkbox", "checked": "checked"})
-
-        if self.info:
-            info_div = overlay_container_div.add_element("div",
-                                                           {"id": "info_container", "class": "control_container"})
-            info_div.add_element("div",
-                                   {"id": "info_container_header", "class": "control_container_header"}).add_text(
-                "Scene Info").add_element("input",{"type":"button","id":"close_info_btn","value":"X","class":"close_button"})
-
-            info_div.add_element("div", attrs={"id":"info_content"})
-
-        if has_data:
-            data_div = overlay_container_div.add_element("div",
-                                                           {"id": "data_container", "class": "control_container"})
-            data_div.add_element("div",
-                                   {"id": "data_container_header", "class": "control_container_header"}).add_text(
-                "Data").add_element("input",{"type":"button","id":"close_data_btn","value":"X", "class":"close_button"})
-            data_div.add_element("div", attrs={"id":"data_content"})
-
-        self.layer_definitions.reverse()
-
-        overlay_container_div.add_element("div",{"id":"map"})
+        for (month, month_name) in enumerate(["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], start=1):
+            month_filter.add_element("span").add_text(month_name)
+            month_filter.add_element("input", {"id": f"month{month}", "type": "checkbox", "checked": "checked"})
 
     def build_timeseries_csv(self):
         folder = os.path.join(self.output_folder, "timeseries")
