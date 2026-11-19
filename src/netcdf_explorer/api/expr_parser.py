@@ -95,7 +95,7 @@ class ExpressionParser:
         elif t == "d_string":
             self.current_token += "'"
         else:
-            self.flush_token();
+            self.flush_token()
             self.current_token_type = "s_string"
             self.current_token_start = self.index
 
@@ -140,7 +140,7 @@ class ExpressionParser:
             self.current_token += c
         else:
             self.flush_token()
-            self.tokens.append(["comma",c, self.index]);
+            self.tokens.append(["comma",c, self.index])
 
     def read_default(self, c):
         t = self.current_token_type
@@ -198,7 +198,7 @@ class ExpressionParser:
     def merge_string_tokens(self):
         merged_tokens = []
         buff = ""
-        buff_pos = -1;
+        buff_pos = -1
         for idx in range(len(self.tokens)):
             t = self.tokens[idx]
             ttype = t[0]
@@ -329,7 +329,7 @@ class ExpressionParser:
                 self.token_index += 1
                 args.append(self.parse_expr())
             elif t == "close_parenthesis" or t == "comma":
-                self.token_index += 1;
+                self.token_index += 1
                 return self.refine_expr(args,self.token_index-1)
             elif t == "operator":
                 args.append({"operator":ctx["content"],"pos":ctx["pos"]})

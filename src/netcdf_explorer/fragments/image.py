@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from ..htmlfive.html5_builder import Html5Builder, Fragment, ElementFragment
+from ..htmlfive.html5_builder import ElementFragment
 import base64
 from .utils import prepare_attrs
 
