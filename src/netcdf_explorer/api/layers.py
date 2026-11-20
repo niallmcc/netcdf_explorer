@@ -104,81 +104,13 @@ def save_image_discrete(arr,path,values):
     im = Image.fromarray(np.uint8((np.vectorize(get_rgba,signature='()->(n)')(arr))),mode="RGBA")
     im.save(path)
 
-class LayerGroup:
+class LayerCommon:
+    """Settings shared by every layer and layer group: name, label, group and which views it appears in."""
 
-    def __init__(self, layer, converter, layer_name, layer_label, sublayers):
-        self.layer = layer
+    def __init__(self, converter, layer_name, layer_label):
         self.converter = converter
         self.layer_name = layer_name
         self.layer_label = layer_label
-        self.sublayers = sublayers
-        self.grid_view = False
-        self.overlay_view = False
-
-    def set_grid_view(self, grid_view):
-        self.grid_view = grid_view
-
-    def get_grid_view(self):
-        return self.grid_view
-
-    def set_overlay_view(self, overlay_view):
-        self.overlay_view = overlay_view
-
-    def get_overlay_view(self):
-        return self.overlay_view
-
-    def has_legend(self):
-        return self.sublayers[0].has_legend()
-
-    def build_legend(self, path):
-        return self.sublayers[0].build_legend(path)
-
-    def check(self, ds):
-        remove_layers = []
-        for layer in self.sublayers:
-            err = layer.check(ds)
-            if err:
-                self.converter.logger.warning(f"Unable to add layer {layer.layer_name}: {err}")
-                remove_layers.append(layer)
-
-        for layer in remove_layers:
-            self.sublayers.remove(layer)
-
-        if len(self.sublayers) == 0:
-            return "No valid layers in this group"
-
-    def build(self,ds,path):
-        for layer in self.sublayers:
-            layer.build(ds,path)
-
-    def save_data(self):
-        return False
-
-    def get_layers(self):
-        return self.sublayers
-
-    def get_sublayers(self):
-        return self.sublayers
-
-class LayerBase:
-
-    def __init__(self, layer, converter, layer_name, layer_label, selectors=None):
-        self.layer_name = layer_name
-        self.layer_label = layer_label
-        self.case_dimension = ""
-        self.x_coordinate = ""
-        self.y_coordinate = ""
-        self.case_dimension = ""
-        self.selectors = selectors if selectors is not None else {}
-        self.flipud = False
-        self.fliplr = False
-        self.converter = converter
-        self.case_dimension = layer.get("dimensions",{}).get("case",converter.case_dimension)
-        self.x_dimension = layer.get("dimensions",{}).get("x",converter.x_dimension)
-        self.y_dimension = layer.get("dimensions",{}).get("y",converter.y_dimension)
-        self.time_coordinate = layer.get("coordinates",{}).get("time",converter.time_coordinate)
-        self.x_coordinate = layer.get("coordinates",{}).get("x",converter.x_coordinate)
-        self.y_coordinate = layer.get("coordinates",{}).get("y",converter.y_coordinate)
         self.group = None
         self.case_wise = False
         self.grid_view = False
@@ -208,21 +140,96 @@ class LayerBase:
     def get_overlay_view(self):
         return self.overlay_view
 
+    def save_data(self):
+        return False
+
+    def get_sublayers(self):
+        return None
+
+
+class LayerGroup(LayerCommon):
+
+    def __init__(self, layer, converter, layer_name, layer_label, sublayers):
+        super().__init__(converter, layer_name, layer_label)
+        self.layer = layer
+        self.sublayers = sublayers
+
+    def has_legend(self):
+        return self.sublayers[0].has_legend()
+
+    def build_legend(self, path):
+        return self.sublayers[0].build_legend(path)
+
+    def check(self, ds):
+        remove_layers = []
+        for layer in self.sublayers:
+            err = layer.check(ds)
+            if err:
+                self.converter.logger.warning(f"Unable to add layer {layer.layer_name}: {err}")
+                remove_layers.append(layer)
+
+        for layer in remove_layers:
+            self.sublayers.remove(layer)
+
+        if len(self.sublayers) == 0:
+            return "No valid layers in this group"
+
+    def build(self,ds,path):
+        for layer in self.sublayers:
+            layer.build(ds,path)
+
+    def get_layers(self):
+        return self.sublayers
+
+    def get_sublayers(self):
+        return self.sublayers
+
+class LayerBase(LayerCommon):
+
+    def __init__(self, layer, converter, layer_name, layer_label, selectors=None):
+        super().__init__(converter, layer_name, layer_label)
+        self.selectors = selectors if selectors is not None else {}
+        self.flipud = False
+        self.fliplr = False
+        # a layer may set its own x and y dimensions and coordinates (see LayerFactory.check_layer_dimensions);
+        # the case dimension and the time coordinate always come from the top-level configuration
+        self.case_dimension = converter.case_dimension
+        self.x_dimension = layer.get("dimensions",{}).get("x",converter.x_dimension)
+        self.y_dimension = layer.get("dimensions",{}).get("y",converter.y_dimension)
+        self.time_coordinate = converter.time_coordinate
+        self.x_coordinate = layer.get("coordinates",{}).get("x",converter.x_coordinate)
+        self.y_coordinate = layer.get("coordinates",{}).get("y",converter.y_coordinate)
+
+    def get_coords(self, ds, coordinate_name):
+        """Return this layer's coordinate variable, taken from the first case if it varies from case to case."""
+        coords = ds[coordinate_name]
+        if self.case_dimension in coords.dims:
+            return coords.isel(**{self.case_dimension: 0}).squeeze()
+        return coords
+
     def check(self, ds):
         for variable in [self.x_coordinate, self.y_coordinate, self.time_coordinate]:
             if variable and variable not in ds:
                 return f"No variable {variable}"
-        xc = self.converter.get_x_coords(ds)
-        yc = self.converter.get_y_coords(ds)
+        xc = self.get_coords(ds, self.x_coordinate)
+        yc = self.get_coords(ds, self.y_coordinate)
         if len(xc.shape) != 1:
-            return "x_coordinate {self.x_coordinate} must be 1-dimensional"
+            return f"x_coordinate {self.x_coordinate} must be 1-dimensional"
         if len(yc.shape) != 1:
-            return "y_coordinate {self.y_coordinate} must be 1-dimensional"
+            return f"y_coordinate {self.y_coordinate} must be 1-dimensional"
 
         if float(xc.data[0]) > float(xc.data[-1]):
             self.fliplr = True
         if float(yc.data[0]) < float(yc.data[-1]):
             self.flipud = True
+
+    def check_band(self, ds, band_name):
+        """Return an error message if band_name is not in ds, otherwise record whether it varies from case to case."""
+        if band_name not in ds:
+            return f"No variable {band_name}"
+        if self.case_dimension and self.case_dimension in ds[band_name].dims:
+            self.set_case_wise(True)
+        return None
 
     def get_data(self, da):
         if self.selectors:
@@ -230,16 +237,16 @@ class LayerBase:
         da = da.squeeze()
         ndims = len(da.dims)
 
-        # make x and y coordinates 2D if they are 1D
+        # data that varies along only x or y is repeated along the other dimension to make an image
         if ndims == 1:
             shape = (self.converter.data_height, self.converter.data_width)
-            if da.dims[0] == self.converter.y_dimension:
+            if da.dims[0] == self.y_dimension:
                 da = xr.DataArray(
                     np.broadcast_to(da.data[None].T, shape),
-                    dims=(self.converter.y_dimension, self.converter.x_dimension))
-            elif da.dims[0] == self.converter.x_dimension:
+                    dims=(self.y_dimension, self.x_dimension))
+            elif da.dims[0] == self.x_dimension:
                 da = xr.DataArray(
-                    np.broadcast_to(da.data, shape), dims=(self.converter.y_dimension, self.converter.x_dimension))
+                    np.broadcast_to(da.data, shape), dims=(self.y_dimension, self.x_dimension))
             ndims = len(da.dims)
         if ndims != 2:
             raise Exception(f"Data for layer {self.layer_name} is not 2D")
@@ -254,13 +261,6 @@ class LayerBase:
         if self.fliplr:
             arr = np.fliplr(arr)
         return arr
-
-    def save_data(self):
-        return False
-
-    def get_sublayers(self):
-        return None
-
 
 class LayerRGB(LayerBase):
 
@@ -286,10 +286,9 @@ class LayerRGB(LayerBase):
         if err:
             return err
         for variable in [self.red_variable, self.green_variable, self.blue_variable]:
-            if variable not in ds:
-                return f"No variable {variable}"
-            if self.converter.case_dimension and self.converter.case_dimension in ds[variable].dims:
-                self.set_case_wise(True)
+            err = self.check_band(ds, variable)
+            if err:
+                return err
 
     def build(self,ds,path):
         red = self.get_data(ds[self.red_variable])
@@ -318,10 +317,7 @@ class LayerSingleBand(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.band_name not in ds:
-            return f"No variable {self.band_name}"
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
-            self.set_case_wise(True)
+        return self.check_band(ds, self.band_name)
 
     def build(self,ds,path):
         save_image(self.get_data(ds[self.band_name]), self.vmin, self.vmax, path, self.cmap_name)
@@ -357,10 +353,7 @@ class LayerVector(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.band_name not in ds:
-            return f"No variable {self.band_name}"
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
-            self.set_case_wise(True)
+        return self.check_band(ds, self.band_name)
 
     def build(self,ds,path):
         s = ds[self.band_name].item()
@@ -407,16 +400,17 @@ class LayerWMS(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.converter.x_coordinate].dims \
-                or self.converter.case_dimension in ds[self.converter.y_coordinate].dims:
+        # the map area changes from case to case if the coordinates do
+        if self.case_dimension and (self.case_dimension in ds[self.x_coordinate].dims
+                                    or self.case_dimension in ds[self.y_coordinate].dims):
             self.set_case_wise(True)
 
     def has_legend(self):
         return False
 
     def get_bounds(self,ds):
-        xc = self.converter.get_x_coords(ds)
-        yc = self.converter.get_y_coords(ds)
+        xc = self.get_coords(ds, self.x_coordinate)
+        yc = self.get_coords(ds, self.y_coordinate)
 
         spacing_x = abs(float(xc[0]) - float(xc[1]))
         spacing_y = abs(float(yc[0]) - float(yc[1]))
@@ -470,10 +464,7 @@ class LayerMask(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.band_name not in ds:
-            return f"No variable {self.band_name}"
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
-            self.set_case_wise(True)
+        return self.check_band(ds, self.band_name)
 
     def build(self,ds,path):
         save_image_mask(self.get_data(ds[self.band_name].astype(int)), path, self.r, self.g, self.b)
@@ -489,15 +480,10 @@ class LayerDiscrete(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.band_name not in ds:
-            return f"No variable {self.band_name}"
-        for (k,v) in self.values.items():
-            (label,color) = v
-            rgb = ColoursToRGB.lookup(color)
-            if rgb is None:
+        for (_label, color) in self.values.values():
+            if ColoursToRGB.lookup(color) is None:
                 return f"Invalid colour {color}"
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
-            self.set_case_wise(True)
+        return self.check_band(ds, self.band_name)
 
     def build(self,ds,path):
         save_image_discrete(self.get_data(ds[self.band_name]), path, self.values)
@@ -523,90 +509,131 @@ class LayerStaticImage(LayerBase):
 class LayerFactory:
 
     @staticmethod
+    def check_layer_dimensions(layer_name, layer):
+        """Raise ConfigError for per-layer dimension or coordinate settings that are not supported.
+
+        A layer may set its own x and y dimensions and x and y coordinates, for a variable whose dimensions
+        or coordinates are named differently, or which is stored in a different orientation. The case dimension
+        and the time coordinate can only be set at the top level, because they decide how the data is split
+        into cases.
+        """
+        for (setting, example, top_level_only) in [("dimensions", "{x: xx, y: yy}", "case dimension"),
+                                                   ("coordinates", "{x: lon, y: lat}", "time coordinate")]:
+            values = layer.get(setting, {})
+            if not isinstance(values, dict):
+                raise ConfigError(f"layer '{layer_name}' setting '{setting}' should be a mapping, for example {example}")
+            for key in values:
+                if key not in ("x", "y"):
+                    raise ConfigError(f"layer '{layer_name}' cannot set {setting} '{key}', a layer can only set its "
+                                      f"x and y {setting} (the {top_level_only} can only be set at the top level)")
+
+    @staticmethod
     def create(converter, layer_name, layer, in_layer_group=False):
+        """Create a layer (or layer group) from its configuration settings.
+
+        Raises:
+            ConfigError: if the settings are not valid
+        """
         if not isinstance(layer, dict):
             raise ConfigError(f"layer '{layer_name}' should be a mapping of settings, got {type(layer).__name__}")
         layer_type = require(layer, "type", "layer", layer_name)
+        LayerFactory.check_layer_dimensions(layer_name, layer)
+        if layer_type not in LayerFactory.CREATORS:
+            raise ConfigError(f"layer '{layer_name}' has unknown type '{layer_type}', should be one of: "
+                              + ", ".join(LayerFactory.CREATORS))
         layer_label = layer.get("label", layer_name)
         selectors = layer.get("selectors", {})
-        grid_view = layer.get("grid_view", True)
-        overlay_view = layer.get("overlay_view", True)
-        if layer_type == "layer_group":
-            if in_layer_group:
-                raise ConfigError(f"layer group '{layer_name}' cannot be nested inside another layer group")
-            sublayers = []
-            for (sublayer_name, sublayer) in layer.get("layers",{}).items():
-                sublayers.append(LayerFactory.create(converter,layer_name+"_"+sublayer_name,sublayer,in_layer_group=True))
-            if len(sublayers) == 0:
-                raise ConfigError(f"layer group '{layer_name}' should contain at least one layer")
-            created_layer = LayerGroup(layer, converter, layer_name, layer_label, sublayers)
-            for sublayer in sublayers:
-                sublayer.set_group(created_layer)
-        elif layer_type == "single":
-            layer_band = layer.get("band", layer_name)
-            vmin = require(layer, "min_value", "layer", layer_name)
-            vmax = require(layer, "max_value", "layer", layer_name)
-            cmap = layer.get("cmap", "coolwarm")
-            if not hasattr(cm, cmap):
-                raise ConfigError(f"layer '{layer_name}' has unknown cmap '{cmap}', should be the name of a matplotlib colour map")
-            data = layer.get("data", None)
-            created_layer = LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap, data)
-        elif layer_type == "mask":
-            layer_band = layer.get("band", layer_name)
-            if "colour" in layer:
-                colour = layer["colour"]
-                if colour in colours_to_rgb:
-                    rgb = colours_to_rgb[colour]
-                    r = rgb["r"]
-                    g = rgb["g"]
-                    b = rgb["b"]
-                else:
-                    raise ConfigError(f"layer '{layer_name}' has unknown colour '{colour}'")
-            else:
-                r = layer.get("r",0)
-                g = layer.get("g",0)
-                b = layer.get("b",0)
-
-            created_layer = LayerMask(layer, converter, layer_name, layer_label, selectors, layer_band, r, g, b)
-        elif layer_type == "rgb":
-            red_band = require(layer, "red_band", "layer", layer_name)
-            green_band = require(layer, "green_band", "layer", layer_name)
-            blue_band = require(layer, "blue_band", "layer", layer_name)
-            red_gamma = layer.get("red_gamma",0.5)
-            green_gamma = layer.get("green_gamma",0.5)
-            blue_gamma = layer.get("blue_gamma",0.5)
-            min_value = layer.get("min_value")
-            max_value = layer.get("max_value")
-            low_percentile = layer.get("low_percentile")
-            high_percentile = layer.get("high_percentile")
-            created_layer = LayerRGB(layer, converter, layer_name, layer_label, selectors, red_variable=red_band,
-                    green_variable=green_band, blue_variable=blue_band,
-                    red_gamma=red_gamma, green_gamma=green_gamma, blue_gamma=blue_gamma,
-                    min_value=min_value, max_value=max_value,
-                    low_percentile=low_percentile, high_percentile=high_percentile)
-        elif layer_type == "discrete":
-            layer_band = layer.get("band", layer_name)
-            values = require(layer, "values", "layer", layer_name)
-            created_layer = LayerDiscrete(layer, converter, layer_name, layer_label, selectors, layer_band, values)
-        elif layer_type == "wms":
-            url = require(layer, "url", "layer", layer_name)
-            scale = layer.get("scale", 1)
-            created_layer = LayerWMS(layer, converter, layer_name, layer_label, url, scale)
-        elif layer_type == "vector":
-            layer_band = layer.get("band", layer_name)
-            scale = layer.get("scale", 10)
-            thickness = layer.get("thickness", 3)
-            colour = layer.get("colour",[0,0,0,255])
-            created_layer = LayerVector(layer, converter, layer_name, layer_label, selectors, layer_band, scale=scale, thickness=thickness,colour=colour)
-        elif layer_type == "static_image":
-            image_path = require(layer, "image_path", "layer", layer_name)
-            created_layer = LayerStaticImage(layer, converter, layer_name, layer_label, selectors, image_path)
-        else:
-            raise ConfigError(f"layer '{layer_name}' has unknown type '{layer_type}', should be one of: "
-                              "single, mask, rgb, discrete, wms, vector, static_image, layer_group")
+        creator = LayerFactory.CREATORS[layer_type]
+        created_layer = creator(converter, layer_name, layer_label, selectors, layer, in_layer_group)
         if not in_layer_group:
-            created_layer.set_grid_view(grid_view)
-            created_layer.set_overlay_view(overlay_view)
+            created_layer.set_grid_view(layer.get("grid_view", True))
+            created_layer.set_overlay_view(layer.get("overlay_view", True))
+        return created_layer
+
+    # each of the following creates one type of layer from its settings:
+    # (converter, layer_name, layer_label, selectors, layer, in_layer_group) -> layer
+
+    @staticmethod
+    def create_single(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        layer_band = layer.get("band", layer_name)
+        vmin = require(layer, "min_value", "layer", layer_name)
+        vmax = require(layer, "max_value", "layer", layer_name)
+        cmap = layer.get("cmap", "coolwarm")
+        if not hasattr(cm, cmap):
+            raise ConfigError(f"layer '{layer_name}' has unknown cmap '{cmap}', should be the name of a matplotlib colour map")
+        data = layer.get("data", None)
+        return LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap, data)
+
+    @staticmethod
+    def create_mask(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        layer_band = layer.get("band", layer_name)
+        if "colour" in layer:
+            colour = layer["colour"]
+            if colour not in colours_to_rgb:
+                raise ConfigError(f"layer '{layer_name}' has unknown colour '{colour}'")
+            rgb = colours_to_rgb[colour]
+            (r, g, b) = (rgb["r"], rgb["g"], rgb["b"])
+        else:
+            (r, g, b) = (layer.get("r",0), layer.get("g",0), layer.get("b",0))
+        return LayerMask(layer, converter, layer_name, layer_label, selectors, layer_band, r, g, b)
+
+    @staticmethod
+    def create_rgb(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        return LayerRGB(layer, converter, layer_name, layer_label, selectors,
+                        red_variable=require(layer, "red_band", "layer", layer_name),
+                        green_variable=require(layer, "green_band", "layer", layer_name),
+                        blue_variable=require(layer, "blue_band", "layer", layer_name),
+                        red_gamma=layer.get("red_gamma",0.5), green_gamma=layer.get("green_gamma",0.5),
+                        blue_gamma=layer.get("blue_gamma",0.5),
+                        min_value=layer.get("min_value"), max_value=layer.get("max_value"),
+                        low_percentile=layer.get("low_percentile"), high_percentile=layer.get("high_percentile"))
+
+    @staticmethod
+    def create_discrete(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        layer_band = layer.get("band", layer_name)
+        values = require(layer, "values", "layer", layer_name)
+        return LayerDiscrete(layer, converter, layer_name, layer_label, selectors, layer_band, values)
+
+    @staticmethod
+    def create_wms(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        url = require(layer, "url", "layer", layer_name)
+        return LayerWMS(layer, converter, layer_name, layer_label, url, layer.get("scale", 1))
+
+    @staticmethod
+    def create_vector(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        layer_band = layer.get("band", layer_name)
+        return LayerVector(layer, converter, layer_name, layer_label, selectors, layer_band,
+                           scale=layer.get("scale", 10), thickness=layer.get("thickness", 3),
+                           colour=layer.get("colour",[0,0,0,255]))
+
+    @staticmethod
+    def create_static_image(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        image_path = require(layer, "image_path", "layer", layer_name)
+        return LayerStaticImage(layer, converter, layer_name, layer_label, selectors, image_path)
+
+    @staticmethod
+    def create_layer_group(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        if in_layer_group:
+            raise ConfigError(f"layer group '{layer_name}' cannot be nested inside another layer group")
+        sublayers = []
+        for (sublayer_name, sublayer) in layer.get("layers",{}).items():
+            sublayers.append(LayerFactory.create(converter,layer_name+"_"+sublayer_name,sublayer,in_layer_group=True))
+        if len(sublayers) == 0:
+            raise ConfigError(f"layer group '{layer_name}' should contain at least one layer")
+        created_layer = LayerGroup(layer, converter, layer_name, layer_label, sublayers)
+        for sublayer in sublayers:
+            sublayer.set_group(created_layer)
         return created_layer
 
 
+# the function that creates each type of layer, keyed by the layer's "type" setting
+LayerFactory.CREATORS = {
+    "single": LayerFactory.create_single,
+    "mask": LayerFactory.create_mask,
+    "rgb": LayerFactory.create_rgb,
+    "discrete": LayerFactory.create_discrete,
+    "wms": LayerFactory.create_wms,
+    "vector": LayerFactory.create_vector,
+    "static_image": LayerFactory.create_static_image,
+    "layer_group": LayerFactory.create_layer_group,
+}

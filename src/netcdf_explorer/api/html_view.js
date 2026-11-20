@@ -1029,7 +1029,10 @@ class HtmlView {
             });
         }
 
-        let cnv = new OffscreenCanvas(this.di.get_width(), this.di.get_height());
+        // combine the layers at the resolution of the main grid, scaling any layer with a different resolution
+        let width = this.scenes.data_width;
+        let height = this.scenes.data_height;
+        let cnv = new OffscreenCanvas(width, height);
         let ctx = cnv.getContext("2d");
         for(let idx=0; idx<image_urls.length; idx++) {
             let url = image_urls[idx][0]
@@ -1037,7 +1040,7 @@ class HtmlView {
             let p = make_image_fetcher(url);
             let img = await p;
             ctx.globalAlpha = opacity;
-            ctx.drawImage(img, 0, 0);
+            ctx.drawImage(img, 0, 0, width, height);
             ctx.globalAlpha = 1.0;
         }
         let blob = await cnv.convertToBlob({"type":"image/png"});

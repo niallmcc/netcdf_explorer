@@ -1,5 +1,6 @@
 import copy
 import csv
+import gzip
 import json
 import os
 import subprocess
@@ -197,6 +198,70 @@ class TestExpressionParser(unittest.TestCase):
                 self.parser.parse(expression)
 
 
+class TestLayerDimensions(unittest.TestCase):
+
+    def test_layer_with_own_x_and_y_dimension_names(self):
+        # add variables whose dimensions are named xx and yy rather than x and y:
+        # a 1-D profile along xx, and a 2-D field stored as (xx, yy), transposed relative to the other variables
+        ds = xr.open_dataset(INPUT_PATH)
+        width = ds.sizes["x"]
+        ds["XPROFILE"] = xr.DataArray(np.linspace(0, 1, width), dims=("xx",))
+        ds["ST_T"] = xr.DataArray(ds["ST"].isel(time=0).data.T, dims=("xx", "yy"))
+        # the same field stored upside down and back to front, with its own (reversed) coordinates
+        ds = ds.assign_coords(x_rev=("xr", ds["x"].data[::-1]), y_rev=("yr", ds["y"].data[::-1]))
+        ds["ST_R"] = xr.DataArray(ds["ST"].isel(time=0).data[::-1, ::-1], dims=("yr", "xr"))
+        # a half-resolution version of the field covering the same area, averaging 2x2 blocks of pixels
+        half = ds["ST"].isel(time=0, x=slice(0, 400), y=slice(0, 400)).coarsen(x=2, y=2).mean()
+        ds = ds.assign_coords(x_half=("xh", half["x"].data), y_half=("yh", half["y"].data))
+        ds["ST_HALF"] = xr.DataArray(half.data, dims=("yh", "xh"))
+        layers = {
+            "ST": {"type": "single", "min_value": 270, "max_value": 300},
+            "XPROFILE": {"type": "single", "min_value": 0, "max_value": 1, "dimensions": {"x": "xx"}},
+            "ST_T": {"type": "single", "min_value": 270, "max_value": 300, "dimensions": {"x": "xx", "y": "yy"}},
+            "ST_R": {"type": "single", "min_value": 270, "max_value": 300, "dimensions": {"x": "xr", "y": "yr"},
+                     "coordinates": {"x": "x_rev", "y": "y_rev"}},
+            "ST_HALF": {"type": "single", "min_value": 270, "max_value": 300, "data": {"label": "{value} K"},
+                        "dimensions": {"x": "xh", "y": "yh"}, "coordinates": {"x": "x_half", "y": "y_half"}},
+        }
+        config = {"dimensions": {"case": "time", "x": "x", "y": "y"},
+                  "coordinates": {"x": "x", "y": "y", "time": "time"}, "layers": layers}
+        with tempfile.TemporaryDirectory() as tmp:
+            input_path = os.path.join(tmp, "input.nc")
+            ds.to_netcdf(input_path)
+            output_folder = os.path.join(tmp, "out")
+            HTMLGenerator(config=config, input_path=input_path, output_folder=output_folder, title="t",
+                          add_download_link=False, show_progress=False).run()
+            with open(os.path.join(output_folder, "scenes.json")) as f:
+                scenes = json.load(f)
+            self.assertEqual(sorted(layer["name"] for layer in scenes["layers"]), sorted(layers))
+            first_case = next(scene for scene in scenes["index"] if scene["pos"] == 0)
+            images = {}
+            for name in ["XPROFILE", "ST_T", "ST_R", "ST_HALF", "ST"]:
+                with Image.open(os.path.join(output_folder, first_case["image_srcs"][name])) as im:
+                    images[name] = np.array(im)
+            # the half-resolution layer's data file is also written at its own resolution
+            with open(os.path.join(output_folder, first_case["data_srcs"]["ST_HALF"]["url"]), "rb") as f:
+                (half_height, half_width) = np.frombuffer(gzip.decompress(f.read())[:8], dtype="<i4")
+
+        self.assertEqual(images["XPROFILE"].shape[:2], (GRID_SIZE[1], GRID_SIZE[0]))
+        # a profile along x gives an image whose rows are all the same
+        self.assertTrue((images["XPROFILE"] == images["XPROFILE"][0]).all())
+        # the transposed field gives the same image as the original field for that case
+        self.assertTrue((images["ST_T"] == images["ST"]).all())
+        # the reversed field is turned the right way up using its own coordinates
+        self.assertTrue((images["ST_R"] == images["ST"]).all())
+        # a layer with a different resolution keeps its own resolution, and the same orientation as the others:
+        # its pixels match the full-resolution image's pixels at the same positions (allowing for averaging)
+        self.assertEqual(images["ST_HALF"].shape[:2], (200, 200))
+        self.assertEqual((half_width, half_height), (200, 200))
+        # (the mean colour difference is about 2.5 the right way up, and over 35 for any flip)
+        half_image = images["ST_HALF"][:, :, :3].astype(int)
+        full_sampled = images["ST"][1:400:2, 1:400:2, :3].astype(int)
+        self.assertLess(np.abs(half_image - full_sampled).mean(), 10)
+        for flipped in [full_sampled[::-1], full_sampled[:, ::-1], full_sampled[::-1, ::-1]]:
+            self.assertGreater(np.abs(half_image - flipped).mean(), 30)
+
+
 class TestTimeseriesAggregation(unittest.TestCase):
 
     def test_aggregations_skip_masked_values(self):
@@ -273,6 +338,20 @@ class TestConfigErrors(unittest.TestCase):
         self.assertConfigError("G", {"type": "layer_group", "layers": {}}, "'G'", "at least one layer")
         nested = {"type": "layer_group", "layers": {"inner": {"type": "layer_group", "layers": {}}}}
         self.assertConfigError("G", nested, "cannot be nested")
+
+    def test_unsupported_layer_dimensions(self):
+        layer = {"type": "single", "min_value": 0, "max_value": 1}
+        self.assertConfigError("ST", dict(layer, dimensions={"case": "t"}), "'ST'", "'case'")
+        self.assertConfigError("ST", dict(layer, dimensions={"z": "depth"}), "'ST'", "'z'")
+        self.assertConfigError("ST", dict(layer, dimensions="x"), "'ST'", "'dimensions'")
+        self.assertConfigError("ST", dict(layer, coordinates={"time": "t"}), "'ST'", "'time'")
+        self.assertConfigError("ST", dict(layer, coordinates={"z": "depth"}), "'ST'", "'z'")
+        self.assertConfigError("ST", dict(layer, coordinates="lon"), "'ST'", "'coordinates'")
+        # x and y dimensions and coordinates may be set per layer
+        created = LayerFactory.create(STUB_CONVERTER, "ST", dict(layer, dimensions={"x": "xx", "y": "yy"},
+                                                                 coordinates={"x": "lon", "y": "lat"}))
+        self.assertEqual((created.x_dimension, created.y_dimension), ("xx", "yy"))
+        self.assertEqual((created.x_coordinate, created.y_coordinate), ("lon", "lat"))
 
     def test_layer_not_a_mapping(self):
         self.assertConfigError("ST", "single", "'ST'", "mapping")

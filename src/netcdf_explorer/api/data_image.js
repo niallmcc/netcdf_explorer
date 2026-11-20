@@ -3,10 +3,9 @@ var cmap = new CMap("cmaps");
 class DataImage {
 
     constructor() {
-        this.height = null;
-        this.width = null;
         this.layer_names = [];
         this.data_layers = {};
+        this.layer_sizes = {}; // layer_name => {"width": ..., "height": ...}, layers may differ in resolution
         this.layer_options = {};
         this.ele = null;
         this.mouseover_listener = null;
@@ -27,14 +26,14 @@ class DataImage {
         const decompressedStream = blob.stream().pipeThrough(ds);
         let r = await new Response(decompressedStream).arrayBuffer();
         let dv = new DataView(r);
-        this.height = dv.getInt32(0, true);
-        this.width = dv.getInt32(4, true);
+        let height = dv.getInt32(0, true);
+        let width = dv.getInt32(4, true);
 
         let pos = 8;
         let data = [];
-        for (let y = 0; y < this.height; y++) {
+        for (let y = 0; y < height; y++) {
             let row = [];
-            for (let x = 0; x < this.width; x++) {
+            for (let x = 0; x < width; x++) {
                 let v = dv.getFloat32(pos, true /* littleEndian */);
                 row.push(v);
                 pos += 4;
@@ -42,6 +41,7 @@ class DataImage {
             data.push(row);
         }
         this.data_layers[layer_name] = data;
+        this.layer_sizes[layer_name] = {"width": width, "height": height};
         this.layer_options[layer_name] = options;
     }
 
@@ -49,12 +49,12 @@ class DataImage {
         return this.data_layers[layer_name][y][x];
     }
 
-    get_height() {
-        return this.height;
+    get_height(layer_name) {
+        return this.layer_sizes[layer_name].height;
     }
 
-    get_width() {
-        return this.width;
+    get_width(layer_name) {
+        return this.layer_sizes[layer_name].width;
     }
 
     get_value(layer_name, y, x) {
@@ -81,11 +81,13 @@ class DataImage {
     get_image_url(layer_name, cmap_name, vmin, vmax) {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-        ctx.canvas.width = this.width;
-        ctx.canvas.height = this.height;
+        let width = this.get_width(layer_name);
+        let height = this.get_height(layer_name);
+        ctx.canvas.width = width;
+        ctx.canvas.height = height;
         let data = this.data_layers[layer_name];
-        for (let y = 0; y < this.height; y++) {
-            for (let x = 0; x < this.width; x++) {
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
                 let v = data[y][x];
                 let rgb = cmap.get_rgb(cmap_name, vmin, vmax, v);
                 if (rgb !== null) {
@@ -103,11 +105,17 @@ class DataImage {
     }
 
     get_popup_html(y_frac, x_frac) {
-        let x = Math.floor(x_frac * this.width);
-        let y = Math.floor((1-y_frac) * this.height);
         let s = "";
         this.layer_names.forEach((layer_name) => {
-            let v = (layer_name in this.data_layers) ? this.get_value(layer_name, y, x) : "[loading]";
+            let v = "[loading]";
+            if (layer_name in this.data_layers) {
+                // convert the position on the map to a pixel in this layer, which may differ in resolution from others
+                let width = this.get_width(layer_name);
+                let height = this.get_height(layer_name);
+                let x = Math.min(Math.floor(x_frac * width), width - 1);
+                let y = Math.min(Math.floor((1-y_frac) * height), height - 1);
+                v = this.get_value(layer_name, y, x);
+            }
             let label = "{value}";
             let fixed = 2;
             if (layer_name in this.layer_options) {
