@@ -53,8 +53,9 @@ layers:
 #     coordinates:
 #       x: lon
 #       y: lat
-# the layer's coordinates decide which way up its image is drawn; the variable should be on the same grid
-# as the other layers. The case dimension and time coordinate can only be set at the top of this file.
+# the layer's coordinates decide which way up its image is drawn. The variable may have a different resolution
+# from the other layers, but should cover the same area, as its image is stretched to fill the same map area.
+# The case dimension and time coordinate can only be set at the top of this file.
 #
 # examples of each of the layer types are included below
   CLOUD_MASK:

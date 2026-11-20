@@ -1,5 +1,6 @@
 import copy
 import csv
+import gzip
 import json
 import os
 import subprocess
@@ -209,12 +210,18 @@ class TestLayerDimensions(unittest.TestCase):
         # the same field stored upside down and back to front, with its own (reversed) coordinates
         ds = ds.assign_coords(x_rev=("xr", ds["x"].data[::-1]), y_rev=("yr", ds["y"].data[::-1]))
         ds["ST_R"] = xr.DataArray(ds["ST"].isel(time=0).data[::-1, ::-1], dims=("yr", "xr"))
+        # a half-resolution version of the field covering the same area, averaging 2x2 blocks of pixels
+        half = ds["ST"].isel(time=0, x=slice(0, 400), y=slice(0, 400)).coarsen(x=2, y=2).mean()
+        ds = ds.assign_coords(x_half=("xh", half["x"].data), y_half=("yh", half["y"].data))
+        ds["ST_HALF"] = xr.DataArray(half.data, dims=("yh", "xh"))
         layers = {
             "ST": {"type": "single", "min_value": 270, "max_value": 300},
             "XPROFILE": {"type": "single", "min_value": 0, "max_value": 1, "dimensions": {"x": "xx"}},
             "ST_T": {"type": "single", "min_value": 270, "max_value": 300, "dimensions": {"x": "xx", "y": "yy"}},
             "ST_R": {"type": "single", "min_value": 270, "max_value": 300, "dimensions": {"x": "xr", "y": "yr"},
                      "coordinates": {"x": "x_rev", "y": "y_rev"}},
+            "ST_HALF": {"type": "single", "min_value": 270, "max_value": 300, "data": {"label": "{value} K"},
+                        "dimensions": {"x": "xh", "y": "yh"}, "coordinates": {"x": "x_half", "y": "y_half"}},
         }
         config = {"dimensions": {"case": "time", "x": "x", "y": "y"},
                   "coordinates": {"x": "x", "y": "y", "time": "time"}, "layers": layers}
@@ -229,9 +236,12 @@ class TestLayerDimensions(unittest.TestCase):
             self.assertEqual(sorted(layer["name"] for layer in scenes["layers"]), sorted(layers))
             first_case = next(scene for scene in scenes["index"] if scene["pos"] == 0)
             images = {}
-            for name in ["XPROFILE", "ST_T", "ST_R", "ST"]:
+            for name in ["XPROFILE", "ST_T", "ST_R", "ST_HALF", "ST"]:
                 with Image.open(os.path.join(output_folder, first_case["image_srcs"][name])) as im:
                     images[name] = np.array(im)
+            # the half-resolution layer's data file is also written at its own resolution
+            with open(os.path.join(output_folder, first_case["data_srcs"]["ST_HALF"]["url"]), "rb") as f:
+                (half_height, half_width) = np.frombuffer(gzip.decompress(f.read())[:8], dtype="<i4")
 
         self.assertEqual(images["XPROFILE"].shape[:2], (GRID_SIZE[1], GRID_SIZE[0]))
         # a profile along x gives an image whose rows are all the same
@@ -240,6 +250,16 @@ class TestLayerDimensions(unittest.TestCase):
         self.assertTrue((images["ST_T"] == images["ST"]).all())
         # the reversed field is turned the right way up using its own coordinates
         self.assertTrue((images["ST_R"] == images["ST"]).all())
+        # a layer with a different resolution keeps its own resolution, and the same orientation as the others:
+        # its pixels match the full-resolution image's pixels at the same positions (allowing for averaging)
+        self.assertEqual(images["ST_HALF"].shape[:2], (200, 200))
+        self.assertEqual((half_width, half_height), (200, 200))
+        # (the mean colour difference is about 2.5 the right way up, and over 35 for any flip)
+        half_image = images["ST_HALF"][:, :, :3].astype(int)
+        full_sampled = images["ST"][1:400:2, 1:400:2, :3].astype(int)
+        self.assertLess(np.abs(half_image - full_sampled).mean(), 10)
+        for flipped in [full_sampled[::-1], full_sampled[:, ::-1], full_sampled[::-1, ::-1]]:
+            self.assertGreater(np.abs(half_image - flipped).mean(), 30)
 
 
 class TestTimeseriesAggregation(unittest.TestCase):

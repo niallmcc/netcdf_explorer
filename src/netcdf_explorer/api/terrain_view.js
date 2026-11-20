@@ -22,8 +22,8 @@ class TerrainView {
         var createScene = () => {
             // prepare the data
 
-            var mapSubX = this.data_image.get_width();
-            var mapSubZ = this.data_image.get_height();
+            var mapSubX = this.data_image.get_width(this.elevation_band);
+            var mapSubZ = this.data_image.get_height(this.elevation_band);
 
             var mapData = new Float32Array(mapSubX * mapSubZ * 3);
 
@@ -66,7 +66,7 @@ class TerrainView {
             var scene = new BABYLON.Scene(this.engine);
             var camera = new BABYLON.ArcRotateCamera("camera1",  0, 0, 0, BABYLON.Vector3.Zero(), scene);
             // position the camera to the south, looking north initially
-            camera.setPosition(new BABYLON.Vector3(0.0, 2*(max_y-min_y), -2*this.data_image.get_height()));
+            camera.setPosition(new BABYLON.Vector3(0.0, 2*(max_y-min_y), -2*this.data_image.get_height(this.elevation_band)));
             camera.attachControl(this.canvas, true);
 
             var light = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(0.0, 2*(max_y-min_y), 0.0), scene);
