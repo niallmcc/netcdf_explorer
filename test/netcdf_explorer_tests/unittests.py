@@ -197,6 +197,44 @@ class TestExpressionParser(unittest.TestCase):
                 self.parser.parse(expression)
 
 
+class TestLayerDimensions(unittest.TestCase):
+
+    def test_layer_with_own_x_and_y_dimension_names(self):
+        # add variables whose dimensions are named xx and yy rather than x and y:
+        # a 1-D profile along xx, and a 2-D field stored as (xx, yy), transposed relative to the other variables
+        ds = xr.open_dataset(INPUT_PATH)
+        width = ds.sizes["x"]
+        ds["XPROFILE"] = xr.DataArray(np.linspace(0, 1, width), dims=("xx",))
+        ds["ST_T"] = xr.DataArray(ds["ST"].isel(time=0).data.T, dims=("xx", "yy"))
+        layers = {
+            "ST": {"type": "single", "min_value": 270, "max_value": 300},
+            "XPROFILE": {"type": "single", "min_value": 0, "max_value": 1, "dimensions": {"x": "xx"}},
+            "ST_T": {"type": "single", "min_value": 270, "max_value": 300, "dimensions": {"x": "xx", "y": "yy"}},
+        }
+        config = {"dimensions": {"case": "time", "x": "x", "y": "y"},
+                  "coordinates": {"x": "x", "y": "y", "time": "time"}, "layers": layers}
+        with tempfile.TemporaryDirectory() as tmp:
+            input_path = os.path.join(tmp, "input.nc")
+            ds.to_netcdf(input_path)
+            output_folder = os.path.join(tmp, "out")
+            HTMLGenerator(config=config, input_path=input_path, output_folder=output_folder, title="t",
+                          add_download_link=False, show_progress=False).run()
+            with open(os.path.join(output_folder, "scenes.json")) as f:
+                scenes = json.load(f)
+            self.assertEqual(sorted(layer["name"] for layer in scenes["layers"]), sorted(layers))
+            first_case = next(scene for scene in scenes["index"] if scene["pos"] == 0)
+            images = {}
+            for name in ["XPROFILE", "ST_T", "ST"]:
+                with Image.open(os.path.join(output_folder, first_case["image_srcs"][name])) as im:
+                    images[name] = np.array(im)
+
+        self.assertEqual(images["XPROFILE"].shape[:2], (GRID_SIZE[1], GRID_SIZE[0]))
+        # a profile along x gives an image whose rows are all the same
+        self.assertTrue((images["XPROFILE"] == images["XPROFILE"][0]).all())
+        # the transposed field gives the same image as the original field for that case
+        self.assertTrue((images["ST_T"] == images["ST"]).all())
+
+
 class TestTimeseriesAggregation(unittest.TestCase):
 
     def test_aggregations_skip_masked_values(self):
@@ -273,6 +311,15 @@ class TestConfigErrors(unittest.TestCase):
         self.assertConfigError("G", {"type": "layer_group", "layers": {}}, "'G'", "at least one layer")
         nested = {"type": "layer_group", "layers": {"inner": {"type": "layer_group", "layers": {}}}}
         self.assertConfigError("G", nested, "cannot be nested")
+
+    def test_unsupported_layer_dimensions(self):
+        layer = {"type": "single", "min_value": 0, "max_value": 1}
+        self.assertConfigError("ST", dict(layer, dimensions={"case": "t"}), "'ST'", "'case'")
+        self.assertConfigError("ST", dict(layer, dimensions={"z": "depth"}), "'ST'", "'z'")
+        self.assertConfigError("ST", dict(layer, dimensions="x"), "'ST'", "'dimensions'")
+        self.assertConfigError("ST", dict(layer, coordinates={"x": "lon"}), "'ST'", "'coordinates'")
+        # x and y dimensions may be set per layer
+        LayerFactory.create(STUB_CONVERTER, "ST", dict(layer, dimensions={"x": "xx", "y": "yy"}))
 
     def test_layer_not_a_mapping(self):
         self.assertConfigError("ST", "single", "'ST'", "mapping")

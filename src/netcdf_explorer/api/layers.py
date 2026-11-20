@@ -165,20 +165,18 @@ class LayerBase:
     def __init__(self, layer, converter, layer_name, layer_label, selectors=None):
         self.layer_name = layer_name
         self.layer_label = layer_label
-        self.case_dimension = ""
-        self.x_coordinate = ""
-        self.y_coordinate = ""
-        self.case_dimension = ""
         self.selectors = selectors if selectors is not None else {}
         self.flipud = False
         self.fliplr = False
         self.converter = converter
-        self.case_dimension = layer.get("dimensions",{}).get("case",converter.case_dimension)
+        # a layer may name its own x and y dimensions (see LayerFactory.check_layer_dimensions);
+        # the case dimension and the coordinates always come from the top-level configuration
+        self.case_dimension = converter.case_dimension
         self.x_dimension = layer.get("dimensions",{}).get("x",converter.x_dimension)
         self.y_dimension = layer.get("dimensions",{}).get("y",converter.y_dimension)
-        self.time_coordinate = layer.get("coordinates",{}).get("time",converter.time_coordinate)
-        self.x_coordinate = layer.get("coordinates",{}).get("x",converter.x_coordinate)
-        self.y_coordinate = layer.get("coordinates",{}).get("y",converter.y_coordinate)
+        self.time_coordinate = converter.time_coordinate
+        self.x_coordinate = converter.x_coordinate
+        self.y_coordinate = converter.y_coordinate
         self.group = None
         self.case_wise = False
         self.grid_view = False
@@ -230,16 +228,16 @@ class LayerBase:
         da = da.squeeze()
         ndims = len(da.dims)
 
-        # make x and y coordinates 2D if they are 1D
+        # data that varies along only x or y is repeated along the other dimension to make an image
         if ndims == 1:
             shape = (self.converter.data_height, self.converter.data_width)
-            if da.dims[0] == self.converter.y_dimension:
+            if da.dims[0] == self.y_dimension:
                 da = xr.DataArray(
                     np.broadcast_to(da.data[None].T, shape),
-                    dims=(self.converter.y_dimension, self.converter.x_dimension))
-            elif da.dims[0] == self.converter.x_dimension:
+                    dims=(self.y_dimension, self.x_dimension))
+            elif da.dims[0] == self.x_dimension:
                 da = xr.DataArray(
-                    np.broadcast_to(da.data, shape), dims=(self.converter.y_dimension, self.converter.x_dimension))
+                    np.broadcast_to(da.data, shape), dims=(self.y_dimension, self.x_dimension))
             ndims = len(da.dims)
         if ndims != 2:
             raise Exception(f"Data for layer {self.layer_name} is not 2D")
@@ -523,10 +521,29 @@ class LayerStaticImage(LayerBase):
 class LayerFactory:
 
     @staticmethod
+    def check_layer_dimensions(layer_name, layer):
+        """Raise ConfigError for per-layer dimension or coordinate settings that are not supported.
+
+        A layer may give its own names for the x and y dimensions, for a variable whose dimensions are
+        named differently. The case dimension and the coordinates can only be set at the top level,
+        because they decide how the data is split into cases and how the images are sized and oriented.
+        """
+        if "coordinates" in layer:
+            raise ConfigError(f"layer '{layer_name}' cannot set 'coordinates', they can only be set at the top level")
+        dimensions = layer.get("dimensions", {})
+        if not isinstance(dimensions, dict):
+            raise ConfigError(f"layer '{layer_name}' setting 'dimensions' should be a mapping, for example {{x: lon, y: lat}}")
+        for key in dimensions:
+            if key not in ("x", "y"):
+                raise ConfigError(f"layer '{layer_name}' cannot set dimension '{key}', a layer can only set its x and y "
+                                  "dimensions (the case dimension can only be set at the top level)")
+
+    @staticmethod
     def create(converter, layer_name, layer, in_layer_group=False):
         if not isinstance(layer, dict):
             raise ConfigError(f"layer '{layer_name}' should be a mapping of settings, got {type(layer).__name__}")
         layer_type = require(layer, "type", "layer", layer_name)
+        LayerFactory.check_layer_dimensions(layer_name, layer)
         layer_label = layer.get("label", layer_name)
         selectors = layer.get("selectors", {})
         grid_view = layer.get("grid_view", True)
