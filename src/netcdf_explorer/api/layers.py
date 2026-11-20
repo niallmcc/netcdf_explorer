@@ -216,6 +216,14 @@ class LayerBase(LayerCommon):
         if float(yc.data[0]) < float(yc.data[-1]):
             self.flipud = True
 
+    def check_band(self, ds, band_name):
+        """Return an error message if band_name is not in ds, otherwise record whether it varies from case to case."""
+        if band_name not in ds:
+            return f"No variable {band_name}"
+        if self.case_dimension and self.case_dimension in ds[band_name].dims:
+            self.set_case_wise(True)
+        return None
+
     def get_data(self, da):
         if self.selectors:
             da = da.isel(**self.selectors)
@@ -271,10 +279,9 @@ class LayerRGB(LayerBase):
         if err:
             return err
         for variable in [self.red_variable, self.green_variable, self.blue_variable]:
-            if variable not in ds:
-                return f"No variable {variable}"
-            if self.converter.case_dimension and self.converter.case_dimension in ds[variable].dims:
-                self.set_case_wise(True)
+            err = self.check_band(ds, variable)
+            if err:
+                return err
 
     def build(self,ds,path):
         red = self.get_data(ds[self.red_variable])
@@ -303,10 +310,7 @@ class LayerSingleBand(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.band_name not in ds:
-            return f"No variable {self.band_name}"
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
-            self.set_case_wise(True)
+        return self.check_band(ds, self.band_name)
 
     def build(self,ds,path):
         save_image(self.get_data(ds[self.band_name]), self.vmin, self.vmax, path, self.cmap_name)
@@ -342,10 +346,7 @@ class LayerVector(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.band_name not in ds:
-            return f"No variable {self.band_name}"
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
-            self.set_case_wise(True)
+        return self.check_band(ds, self.band_name)
 
     def build(self,ds,path):
         s = ds[self.band_name].item()
@@ -392,8 +393,9 @@ class LayerWMS(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.converter.x_coordinate].dims \
-                or self.converter.case_dimension in ds[self.converter.y_coordinate].dims:
+        # the map area changes from case to case if the coordinates do
+        if self.case_dimension and (self.case_dimension in ds[self.x_coordinate].dims
+                                    or self.case_dimension in ds[self.y_coordinate].dims):
             self.set_case_wise(True)
 
     def has_legend(self):
@@ -455,10 +457,7 @@ class LayerMask(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.band_name not in ds:
-            return f"No variable {self.band_name}"
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
-            self.set_case_wise(True)
+        return self.check_band(ds, self.band_name)
 
     def build(self,ds,path):
         save_image_mask(self.get_data(ds[self.band_name].astype(int)), path, self.r, self.g, self.b)
@@ -474,15 +473,10 @@ class LayerDiscrete(LayerBase):
         err = super().check(ds)
         if err:
             return err
-        if self.band_name not in ds:
-            return f"No variable {self.band_name}"
-        for (k,v) in self.values.items():
-            (label,color) = v
-            rgb = ColoursToRGB.lookup(color)
-            if rgb is None:
+        for (_label, color) in self.values.values():
+            if ColoursToRGB.lookup(color) is None:
                 return f"Invalid colour {color}"
-        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
-            self.set_case_wise(True)
+        return self.check_band(ds, self.band_name)
 
     def build(self,ds,path):
         save_image_discrete(self.get_data(ds[self.band_name]), path, self.values)
