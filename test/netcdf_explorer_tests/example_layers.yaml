@@ -45,6 +45,17 @@ layers:
 #
 # depending upon the type, other attributes are also available
 #
+# a layer can set its own x and y dimensions and coordinates, for a variable whose dimensions or coordinates
+# are named differently from those set at the top of this file, for example:
+#     dimensions:
+#       x: lon_dim
+#       y: lat_dim
+#     coordinates:
+#       x: lon
+#       y: lat
+# the layer's coordinates decide which way up its image is drawn; the variable should be on the same grid
+# as the other layers. The case dimension and time coordinate can only be set at the top of this file.
+#
 # examples of each of the layer types are included below
   CLOUD_MASK:
     label: "Basic Cloud Mask (8)"

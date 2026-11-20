@@ -191,21 +191,28 @@ class LayerBase(LayerCommon):
         self.selectors = selectors if selectors is not None else {}
         self.flipud = False
         self.fliplr = False
-        # a layer may name its own x and y dimensions (see LayerFactory.check_layer_dimensions);
-        # the case dimension and the coordinates always come from the top-level configuration
+        # a layer may set its own x and y dimensions and coordinates (see LayerFactory.check_layer_dimensions);
+        # the case dimension and the time coordinate always come from the top-level configuration
         self.case_dimension = converter.case_dimension
         self.x_dimension = layer.get("dimensions",{}).get("x",converter.x_dimension)
         self.y_dimension = layer.get("dimensions",{}).get("y",converter.y_dimension)
         self.time_coordinate = converter.time_coordinate
-        self.x_coordinate = converter.x_coordinate
-        self.y_coordinate = converter.y_coordinate
+        self.x_coordinate = layer.get("coordinates",{}).get("x",converter.x_coordinate)
+        self.y_coordinate = layer.get("coordinates",{}).get("y",converter.y_coordinate)
+
+    def get_coords(self, ds, coordinate_name):
+        """Return this layer's coordinate variable, taken from the first case if it varies from case to case."""
+        coords = ds[coordinate_name]
+        if self.case_dimension in coords.dims:
+            return coords.isel(**{self.case_dimension: 0}).squeeze()
+        return coords
 
     def check(self, ds):
         for variable in [self.x_coordinate, self.y_coordinate, self.time_coordinate]:
             if variable and variable not in ds:
                 return f"No variable {variable}"
-        xc = self.converter.get_x_coords(ds)
-        yc = self.converter.get_y_coords(ds)
+        xc = self.get_coords(ds, self.x_coordinate)
+        yc = self.get_coords(ds, self.y_coordinate)
         if len(xc.shape) != 1:
             return f"x_coordinate {self.x_coordinate} must be 1-dimensional"
         if len(yc.shape) != 1:
@@ -402,8 +409,8 @@ class LayerWMS(LayerBase):
         return False
 
     def get_bounds(self,ds):
-        xc = self.converter.get_x_coords(ds)
-        yc = self.converter.get_y_coords(ds)
+        xc = self.get_coords(ds, self.x_coordinate)
+        yc = self.get_coords(ds, self.y_coordinate)
 
         spacing_x = abs(float(xc[0]) - float(xc[1]))
         spacing_y = abs(float(yc[0]) - float(yc[1]))
@@ -505,19 +512,20 @@ class LayerFactory:
     def check_layer_dimensions(layer_name, layer):
         """Raise ConfigError for per-layer dimension or coordinate settings that are not supported.
 
-        A layer may give its own names for the x and y dimensions, for a variable whose dimensions are
-        named differently. The case dimension and the coordinates can only be set at the top level,
-        because they decide how the data is split into cases and how the images are sized and oriented.
+        A layer may set its own x and y dimensions and x and y coordinates, for a variable whose dimensions
+        or coordinates are named differently, or which is stored in a different orientation. The case dimension
+        and the time coordinate can only be set at the top level, because they decide how the data is split
+        into cases.
         """
-        if "coordinates" in layer:
-            raise ConfigError(f"layer '{layer_name}' cannot set 'coordinates', they can only be set at the top level")
-        dimensions = layer.get("dimensions", {})
-        if not isinstance(dimensions, dict):
-            raise ConfigError(f"layer '{layer_name}' setting 'dimensions' should be a mapping, for example {{x: lon, y: lat}}")
-        for key in dimensions:
-            if key not in ("x", "y"):
-                raise ConfigError(f"layer '{layer_name}' cannot set dimension '{key}', a layer can only set its x and y "
-                                  "dimensions (the case dimension can only be set at the top level)")
+        for (setting, example, top_level_only) in [("dimensions", "{x: xx, y: yy}", "case dimension"),
+                                                   ("coordinates", "{x: lon, y: lat}", "time coordinate")]:
+            values = layer.get(setting, {})
+            if not isinstance(values, dict):
+                raise ConfigError(f"layer '{layer_name}' setting '{setting}' should be a mapping, for example {example}")
+            for key in values:
+                if key not in ("x", "y"):
+                    raise ConfigError(f"layer '{layer_name}' cannot set {setting} '{key}', a layer can only set its "
+                                      f"x and y {setting} (the {top_level_only} can only be set at the top level)")
 
     @staticmethod
     def create(converter, layer_name, layer, in_layer_group=False):

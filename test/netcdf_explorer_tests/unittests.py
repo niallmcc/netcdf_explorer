@@ -206,10 +206,15 @@ class TestLayerDimensions(unittest.TestCase):
         width = ds.sizes["x"]
         ds["XPROFILE"] = xr.DataArray(np.linspace(0, 1, width), dims=("xx",))
         ds["ST_T"] = xr.DataArray(ds["ST"].isel(time=0).data.T, dims=("xx", "yy"))
+        # the same field stored upside down and back to front, with its own (reversed) coordinates
+        ds = ds.assign_coords(x_rev=("xr", ds["x"].data[::-1]), y_rev=("yr", ds["y"].data[::-1]))
+        ds["ST_R"] = xr.DataArray(ds["ST"].isel(time=0).data[::-1, ::-1], dims=("yr", "xr"))
         layers = {
             "ST": {"type": "single", "min_value": 270, "max_value": 300},
             "XPROFILE": {"type": "single", "min_value": 0, "max_value": 1, "dimensions": {"x": "xx"}},
             "ST_T": {"type": "single", "min_value": 270, "max_value": 300, "dimensions": {"x": "xx", "y": "yy"}},
+            "ST_R": {"type": "single", "min_value": 270, "max_value": 300, "dimensions": {"x": "xr", "y": "yr"},
+                     "coordinates": {"x": "x_rev", "y": "y_rev"}},
         }
         config = {"dimensions": {"case": "time", "x": "x", "y": "y"},
                   "coordinates": {"x": "x", "y": "y", "time": "time"}, "layers": layers}
@@ -224,7 +229,7 @@ class TestLayerDimensions(unittest.TestCase):
             self.assertEqual(sorted(layer["name"] for layer in scenes["layers"]), sorted(layers))
             first_case = next(scene for scene in scenes["index"] if scene["pos"] == 0)
             images = {}
-            for name in ["XPROFILE", "ST_T", "ST"]:
+            for name in ["XPROFILE", "ST_T", "ST_R", "ST"]:
                 with Image.open(os.path.join(output_folder, first_case["image_srcs"][name])) as im:
                     images[name] = np.array(im)
 
@@ -233,6 +238,8 @@ class TestLayerDimensions(unittest.TestCase):
         self.assertTrue((images["XPROFILE"] == images["XPROFILE"][0]).all())
         # the transposed field gives the same image as the original field for that case
         self.assertTrue((images["ST_T"] == images["ST"]).all())
+        # the reversed field is turned the right way up using its own coordinates
+        self.assertTrue((images["ST_R"] == images["ST"]).all())
 
 
 class TestTimeseriesAggregation(unittest.TestCase):
@@ -317,9 +324,14 @@ class TestConfigErrors(unittest.TestCase):
         self.assertConfigError("ST", dict(layer, dimensions={"case": "t"}), "'ST'", "'case'")
         self.assertConfigError("ST", dict(layer, dimensions={"z": "depth"}), "'ST'", "'z'")
         self.assertConfigError("ST", dict(layer, dimensions="x"), "'ST'", "'dimensions'")
-        self.assertConfigError("ST", dict(layer, coordinates={"x": "lon"}), "'ST'", "'coordinates'")
-        # x and y dimensions may be set per layer
-        LayerFactory.create(STUB_CONVERTER, "ST", dict(layer, dimensions={"x": "xx", "y": "yy"}))
+        self.assertConfigError("ST", dict(layer, coordinates={"time": "t"}), "'ST'", "'time'")
+        self.assertConfigError("ST", dict(layer, coordinates={"z": "depth"}), "'ST'", "'z'")
+        self.assertConfigError("ST", dict(layer, coordinates="lon"), "'ST'", "'coordinates'")
+        # x and y dimensions and coordinates may be set per layer
+        created = LayerFactory.create(STUB_CONVERTER, "ST", dict(layer, dimensions={"x": "xx", "y": "yy"},
+                                                                 coordinates={"x": "lon", "y": "lat"}))
+        self.assertEqual((created.x_dimension, created.y_dimension), ("xx", "yy"))
+        self.assertEqual((created.x_coordinate, created.y_coordinate), ("lon", "lat"))
 
     def test_layer_not_a_mapping(self):
         self.assertConfigError("ST", "single", "'ST'", "mapping")
