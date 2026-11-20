@@ -1,4 +1,5 @@
 import copy
+import csv
 import json
 import os
 import subprocess
@@ -7,6 +8,7 @@ import tempfile
 import types
 import unittest
 
+import numpy as np
 import xarray as xr
 import yaml
 from PIL import Image
@@ -193,6 +195,44 @@ class TestExpressionParser(unittest.TestCase):
         for expression in ["(QA_PIXEL & 8", "QA_PIXEL & 8)", "QA_PIXEL & & 8", "QA_PIXEL &"]:
             with self.subTest(expression=expression), self.assertRaises(ExpressionParser.ParseError):
                 self.parser.parse(expression)
+
+
+class TestTimeseriesAggregation(unittest.TestCase):
+
+    def test_aggregations_skip_masked_values(self):
+        # values outside the mask are NaN, as in HTMLGenerator.collect_timeseries_rows
+        values = xr.DataArray(np.array([[1.0, np.nan, 7.0], [np.nan, 3.0, 10.0]]))
+        expected = {"mean": np.nanmean, "min": np.nanmin, "max": np.nanmax, "median": np.nanmedian}
+        for (aggregation_fn, numpy_fn) in expected.items():
+            with self.subTest(aggregation_fn=aggregation_fn):
+                result = HTMLGenerator.aggregate("TS", values, aggregation_fn)
+                self.assertIsInstance(result, float)
+                self.assertAlmostEqual(result, float(numpy_fn(values.data)))
+
+    def test_aggregations_of_fully_masked_values_are_nan(self):
+        values = xr.DataArray(np.full((2, 2), np.nan))
+        for aggregation_fn in ["mean", "min", "max", "median"]:
+            with self.subTest(aggregation_fn=aggregation_fn):
+                self.assertTrue(np.isnan(HTMLGenerator.aggregate("TS", values, aggregation_fn)))
+
+    def test_masked_median_in_csv(self):
+        config = load_example_config()
+        config["timeseries"]["ST_cloudy"]["variables"].append("B2:median")
+        with tempfile.TemporaryDirectory() as tmp:
+            HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
+                          add_download_link=False, show_progress=False).run()
+            with open(os.path.join(tmp, "timeseries", "ST_cloudy.csv"), newline="") as f:
+                rows = list(csv.DictReader(f))
+        self.assertEqual(len(rows), CASE_COUNT)
+
+        # compare with the median of B2 over the CLOUD_MASK pixels, case by case in time order
+        ds = xr.open_dataset(INPUT_PATH).sortby("time")
+        for (i, row) in enumerate(rows):
+            case = ds.isel(time=i)
+            cloud_mask = np.logical_not(np.bitwise_and(case["QA_PIXEL"].data.astype(int), 8) == 0)
+            expected = float(np.nanmedian(np.where(cloud_mask, case["B2"].data, np.nan)))
+            self.assertNotEqual(row["CLOUD_MASK_B2_median"], "", f"median is blank for {row['datetime']}")
+            self.assertAlmostEqual(float(row["CLOUD_MASK_B2_median"]), expected, places=5)
 
 
 class TestConfigErrors(unittest.TestCase):

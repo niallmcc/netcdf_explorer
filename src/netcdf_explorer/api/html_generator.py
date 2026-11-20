@@ -1077,7 +1077,10 @@ class HTMLGenerator:
 
     @staticmethod
     def aggregate(timeseries_name, values, aggregation_fn):
-        """Reduce a masked array of values to a single number using the named aggregation function."""
+        """Reduce a masked array of values to a single number using the named aggregation function.
+
+        Values outside the mask are NaN and are skipped. If every value is NaN, the result is NaN.
+        """
         if aggregation_fn == "mean":
             return values.mean(skipna=True).item()
         elif aggregation_fn == "min":
@@ -1085,7 +1088,7 @@ class HTMLGenerator:
         elif aggregation_fn == "max":
             return values.max(skipna=True).item()
         elif aggregation_fn == "median":
-            return float(np.median(values.data))
+            return values.median(skipna=True).item()
         else:
             raise ConfigError(f"timeseries '{timeseries_name}' uses unknown aggregation function '{aggregation_fn}'")
 
