@@ -521,90 +521,111 @@ class LayerFactory:
 
     @staticmethod
     def create(converter, layer_name, layer, in_layer_group=False):
+        """Create a layer (or layer group) from its configuration settings.
+
+        Raises:
+            ConfigError: if the settings are not valid
+        """
         if not isinstance(layer, dict):
             raise ConfigError(f"layer '{layer_name}' should be a mapping of settings, got {type(layer).__name__}")
         layer_type = require(layer, "type", "layer", layer_name)
         LayerFactory.check_layer_dimensions(layer_name, layer)
+        if layer_type not in LayerFactory.CREATORS:
+            raise ConfigError(f"layer '{layer_name}' has unknown type '{layer_type}', should be one of: "
+                              + ", ".join(LayerFactory.CREATORS))
         layer_label = layer.get("label", layer_name)
         selectors = layer.get("selectors", {})
-        grid_view = layer.get("grid_view", True)
-        overlay_view = layer.get("overlay_view", True)
-        if layer_type == "layer_group":
-            if in_layer_group:
-                raise ConfigError(f"layer group '{layer_name}' cannot be nested inside another layer group")
-            sublayers = []
-            for (sublayer_name, sublayer) in layer.get("layers",{}).items():
-                sublayers.append(LayerFactory.create(converter,layer_name+"_"+sublayer_name,sublayer,in_layer_group=True))
-            if len(sublayers) == 0:
-                raise ConfigError(f"layer group '{layer_name}' should contain at least one layer")
-            created_layer = LayerGroup(layer, converter, layer_name, layer_label, sublayers)
-            for sublayer in sublayers:
-                sublayer.set_group(created_layer)
-        elif layer_type == "single":
-            layer_band = layer.get("band", layer_name)
-            vmin = require(layer, "min_value", "layer", layer_name)
-            vmax = require(layer, "max_value", "layer", layer_name)
-            cmap = layer.get("cmap", "coolwarm")
-            if not hasattr(cm, cmap):
-                raise ConfigError(f"layer '{layer_name}' has unknown cmap '{cmap}', should be the name of a matplotlib colour map")
-            data = layer.get("data", None)
-            created_layer = LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap, data)
-        elif layer_type == "mask":
-            layer_band = layer.get("band", layer_name)
-            if "colour" in layer:
-                colour = layer["colour"]
-                if colour in colours_to_rgb:
-                    rgb = colours_to_rgb[colour]
-                    r = rgb["r"]
-                    g = rgb["g"]
-                    b = rgb["b"]
-                else:
-                    raise ConfigError(f"layer '{layer_name}' has unknown colour '{colour}'")
-            else:
-                r = layer.get("r",0)
-                g = layer.get("g",0)
-                b = layer.get("b",0)
-
-            created_layer = LayerMask(layer, converter, layer_name, layer_label, selectors, layer_band, r, g, b)
-        elif layer_type == "rgb":
-            red_band = require(layer, "red_band", "layer", layer_name)
-            green_band = require(layer, "green_band", "layer", layer_name)
-            blue_band = require(layer, "blue_band", "layer", layer_name)
-            red_gamma = layer.get("red_gamma",0.5)
-            green_gamma = layer.get("green_gamma",0.5)
-            blue_gamma = layer.get("blue_gamma",0.5)
-            min_value = layer.get("min_value")
-            max_value = layer.get("max_value")
-            low_percentile = layer.get("low_percentile")
-            high_percentile = layer.get("high_percentile")
-            created_layer = LayerRGB(layer, converter, layer_name, layer_label, selectors, red_variable=red_band,
-                    green_variable=green_band, blue_variable=blue_band,
-                    red_gamma=red_gamma, green_gamma=green_gamma, blue_gamma=blue_gamma,
-                    min_value=min_value, max_value=max_value,
-                    low_percentile=low_percentile, high_percentile=high_percentile)
-        elif layer_type == "discrete":
-            layer_band = layer.get("band", layer_name)
-            values = require(layer, "values", "layer", layer_name)
-            created_layer = LayerDiscrete(layer, converter, layer_name, layer_label, selectors, layer_band, values)
-        elif layer_type == "wms":
-            url = require(layer, "url", "layer", layer_name)
-            scale = layer.get("scale", 1)
-            created_layer = LayerWMS(layer, converter, layer_name, layer_label, url, scale)
-        elif layer_type == "vector":
-            layer_band = layer.get("band", layer_name)
-            scale = layer.get("scale", 10)
-            thickness = layer.get("thickness", 3)
-            colour = layer.get("colour",[0,0,0,255])
-            created_layer = LayerVector(layer, converter, layer_name, layer_label, selectors, layer_band, scale=scale, thickness=thickness,colour=colour)
-        elif layer_type == "static_image":
-            image_path = require(layer, "image_path", "layer", layer_name)
-            created_layer = LayerStaticImage(layer, converter, layer_name, layer_label, selectors, image_path)
-        else:
-            raise ConfigError(f"layer '{layer_name}' has unknown type '{layer_type}', should be one of: "
-                              "single, mask, rgb, discrete, wms, vector, static_image, layer_group")
+        creator = LayerFactory.CREATORS[layer_type]
+        created_layer = creator(converter, layer_name, layer_label, selectors, layer, in_layer_group)
         if not in_layer_group:
-            created_layer.set_grid_view(grid_view)
-            created_layer.set_overlay_view(overlay_view)
+            created_layer.set_grid_view(layer.get("grid_view", True))
+            created_layer.set_overlay_view(layer.get("overlay_view", True))
+        return created_layer
+
+    # each of the following creates one type of layer from its settings:
+    # (converter, layer_name, layer_label, selectors, layer, in_layer_group) -> layer
+
+    @staticmethod
+    def create_single(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        layer_band = layer.get("band", layer_name)
+        vmin = require(layer, "min_value", "layer", layer_name)
+        vmax = require(layer, "max_value", "layer", layer_name)
+        cmap = layer.get("cmap", "coolwarm")
+        if not hasattr(cm, cmap):
+            raise ConfigError(f"layer '{layer_name}' has unknown cmap '{cmap}', should be the name of a matplotlib colour map")
+        data = layer.get("data", None)
+        return LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap, data)
+
+    @staticmethod
+    def create_mask(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        layer_band = layer.get("band", layer_name)
+        if "colour" in layer:
+            colour = layer["colour"]
+            if colour not in colours_to_rgb:
+                raise ConfigError(f"layer '{layer_name}' has unknown colour '{colour}'")
+            rgb = colours_to_rgb[colour]
+            (r, g, b) = (rgb["r"], rgb["g"], rgb["b"])
+        else:
+            (r, g, b) = (layer.get("r",0), layer.get("g",0), layer.get("b",0))
+        return LayerMask(layer, converter, layer_name, layer_label, selectors, layer_band, r, g, b)
+
+    @staticmethod
+    def create_rgb(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        return LayerRGB(layer, converter, layer_name, layer_label, selectors,
+                        red_variable=require(layer, "red_band", "layer", layer_name),
+                        green_variable=require(layer, "green_band", "layer", layer_name),
+                        blue_variable=require(layer, "blue_band", "layer", layer_name),
+                        red_gamma=layer.get("red_gamma",0.5), green_gamma=layer.get("green_gamma",0.5),
+                        blue_gamma=layer.get("blue_gamma",0.5),
+                        min_value=layer.get("min_value"), max_value=layer.get("max_value"),
+                        low_percentile=layer.get("low_percentile"), high_percentile=layer.get("high_percentile"))
+
+    @staticmethod
+    def create_discrete(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        layer_band = layer.get("band", layer_name)
+        values = require(layer, "values", "layer", layer_name)
+        return LayerDiscrete(layer, converter, layer_name, layer_label, selectors, layer_band, values)
+
+    @staticmethod
+    def create_wms(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        url = require(layer, "url", "layer", layer_name)
+        return LayerWMS(layer, converter, layer_name, layer_label, url, layer.get("scale", 1))
+
+    @staticmethod
+    def create_vector(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        layer_band = layer.get("band", layer_name)
+        return LayerVector(layer, converter, layer_name, layer_label, selectors, layer_band,
+                           scale=layer.get("scale", 10), thickness=layer.get("thickness", 3),
+                           colour=layer.get("colour",[0,0,0,255]))
+
+    @staticmethod
+    def create_static_image(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        image_path = require(layer, "image_path", "layer", layer_name)
+        return LayerStaticImage(layer, converter, layer_name, layer_label, selectors, image_path)
+
+    @staticmethod
+    def create_layer_group(converter, layer_name, layer_label, selectors, layer, in_layer_group):
+        if in_layer_group:
+            raise ConfigError(f"layer group '{layer_name}' cannot be nested inside another layer group")
+        sublayers = []
+        for (sublayer_name, sublayer) in layer.get("layers",{}).items():
+            sublayers.append(LayerFactory.create(converter,layer_name+"_"+sublayer_name,sublayer,in_layer_group=True))
+        if len(sublayers) == 0:
+            raise ConfigError(f"layer group '{layer_name}' should contain at least one layer")
+        created_layer = LayerGroup(layer, converter, layer_name, layer_label, sublayers)
+        for sublayer in sublayers:
+            sublayer.set_group(created_layer)
         return created_layer
 
 
+# the function that creates each type of layer, keyed by the layer's "type" setting
+LayerFactory.CREATORS = {
+    "single": LayerFactory.create_single,
+    "mask": LayerFactory.create_mask,
+    "rgb": LayerFactory.create_rgb,
+    "discrete": LayerFactory.create_discrete,
+    "wms": LayerFactory.create_wms,
+    "vector": LayerFactory.create_vector,
+    "static_image": LayerFactory.create_static_image,
+    "layer_group": LayerFactory.create_layer_group,
+}
