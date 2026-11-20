@@ -143,6 +143,9 @@ class HTMLGenerator:
         self.all_cmaps = sorted([filename[:-len(".json")] for filename in os.listdir(cmaps_folder)
                                  if filename.endswith(".json")], key=lambda v:v.lower())
 
+        if self.terrain_view:
+            self.check_terrain_spec(self.terrain_view)
+
     def read_config(self, config):
         """Read the top-level settings from the configuration."""
         dimensions = config.get("dimensions", {})
@@ -164,6 +167,7 @@ class HTMLGenerator:
         self.timeseries = config.get("timeseries",{})
         self.derive_bands = config.get("derive_bands",{})
         self.terrain_view = config.get("terrain_view",{})
+
 
     def select_cases(self, ds, sample_count, sample_cases):
         """Return ds restricted to the requested cases: either the given indexes or a random sample."""
@@ -195,6 +199,10 @@ class HTMLGenerator:
         parser.add_binary_operator("|", 3)
         parser.add_binary_operator("&", 3)
         parser.add_binary_operator("==",2)
+        parser.add_binary_operator(">", 2)
+        parser.add_binary_operator(">=", 2)
+        parser.add_binary_operator("<", 2)
+        parser.add_binary_operator("<=", 2)
         parser.add_binary_operator("and",1)
         parser.add_binary_operator("or",1)
         return parser
@@ -305,6 +313,12 @@ class HTMLGenerator:
                 flattened_layers.append(layer)
         return flattened_layers
 
+    def check_terrain_spec(self, terrain_view):
+        if "elevation_band" not in terrain_view and "based_on_layer" not in terrain_view:
+            raise ConfigError("terrain_view should contain based_on_layer key")
+        if "pixel_size_in_elevation_units" not in terrain_view:
+            self.logger.warning("terrain_view should contain pixel_size_in_elevation_units key")
+
     @staticmethod
     def check_timeseries_spec(timeseries_name, timeseries_spec):
         """Raise ConfigError if a timeseries specification is invalid, before any work is done."""
@@ -351,6 +365,19 @@ class HTMLGenerator:
                 return self.input_ds[source_band].data
             else:
                 raise Exception(f"Expression references unknown band: {source_band}")
+        elif "function" in parsed_expression:
+            function = parsed_expression["function"]
+            args = parsed_expression["args"]
+            arrays = []
+            for arg in args:
+                arrays.append(self.evaluate_expression(arg, from_bands_accumulator))
+            if function.lower() == "if":
+                if (len(arrays) == 3):
+                    return np.where(arrays[0],arrays[1],arrays[2])
+                else:
+                    raise ConfigError(f"Function if in derived band requires exactly 3 arguments")
+            else:
+                raise ConfigError(f"Unrecognised function {function} in derived band")
         elif "operator" in parsed_expression:
             operator = parsed_expression["operator"]
             args = parsed_expression["args"]
@@ -360,6 +387,18 @@ class HTMLGenerator:
             if operator == "==":
                 assert len(args) == 2
                 return np.equal(arrays[0],arrays[1])
+            elif operator == ">":
+                assert len(args) == 2
+                return np.greater(arrays[0],arrays[1])
+            elif operator == ">=":
+                assert len(args) == 2
+                return np.greater_equal(arrays[0],arrays[1])
+            elif operator == "<":
+                assert len(args) == 2
+                return np.less(arrays[0],arrays[1])
+            elif operator == "<=":
+                assert len(args) == 2
+                return np.less_equal(arrays[0],arrays[1])
             elif operator == "&":
                 assert len(args) == 2
                 return np.bitwise_and(np.astype(arrays[0],int),np.astype(arrays[1],int))

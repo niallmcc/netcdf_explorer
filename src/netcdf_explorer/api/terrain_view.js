@@ -1,12 +1,13 @@
 class TerrainView {
 
-    constructor(data_image, elevation_band, image_url, terrain_zoom) {
+    constructor(data_image, elevation_layer, image_url, terrain_zoom, pixel_size_in_terrain_units) {
         this.data_image = data_image;
-        this.elevation_band = elevation_band;
+        this.elevation_layer = elevation_layer;
         this.image_url = image_url;
         this.canvas = null;
         this.scene = null;
         this.engine = null;
+        this.pixel_size = pixel_size_in_terrain_units || 50;
         this.terrain_zoom = terrain_zoom;
     }
 
@@ -22,23 +23,21 @@ class TerrainView {
         var createScene = () => {
             // prepare the data
 
-            var mapSubX = this.data_image.get_width(this.elevation_band);
-            var mapSubZ = this.data_image.get_height(this.elevation_band);
+            var mapSubX = this.data_image.get_width(this.elevation_layer);
+            var mapSubZ = this.data_image.get_height(this.elevation_layer);
 
             var mapData = new Float32Array(mapSubX * mapSubZ * 3);
 
             var paths = [];
             let min_y = null;
             let max_y = null;
-            // x/z scale is 25m per pixel
-            // allow the y scale to zoom the terrain
-            let y_scale = 25 / this.terrain_zoom;
+            let y_scale = (0.5*this.pixel_size) / this.terrain_zoom;
             for (var l = 0; l < mapSubZ; l++) {
                 var path = [];
                 for (var w = 0; w < mapSubX; w++) {
                     var x = (w - mapSubX * 0.5) * 2.0;
                     var z = (l - mapSubZ * 0.5) * 2.0;
-                    var y = this.data_image.get_data(this.elevation_band, w, mapSubZ-(l+1)) / y_scale;
+                    var y = this.data_image.get_data(this.elevation_layer, w, mapSubZ-(l+1)) / y_scale;
                     if (min_y === null || min_y > y) {
                         min_y = y;
                     }
@@ -66,7 +65,7 @@ class TerrainView {
             var scene = new BABYLON.Scene(this.engine);
             var camera = new BABYLON.ArcRotateCamera("camera1",  0, 0, 0, BABYLON.Vector3.Zero(), scene);
             // position the camera to the south, looking north initially
-            camera.setPosition(new BABYLON.Vector3(0.0, 2*(max_y-min_y), -2*this.data_image.get_height(this.elevation_band)));
+            camera.setPosition(new BABYLON.Vector3(0.0, 2*(max_y-min_y), -2*this.data_image.get_height(this.elevation_layer)));
             camera.attachControl(this.canvas, true);
 
             var light = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(0.0, 2*(max_y-min_y), 0.0), scene);

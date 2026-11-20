@@ -26,6 +26,7 @@ info:
 derive_bands:
   CLOUD_MASK: "not (QA_PIXEL & 8 == 0)"
   EXTENDED_CLOUD_MASK: "not (QA_PIXEL & 30 == 0)"
+  DISCRETE_TEMP: IF(ST > 290, 3, IF(ST > 280, 2, 1))
 
 timeseries:
   ST_cloudy:
@@ -85,6 +86,15 @@ layers:
       label: "B10_ST: {value} K"
       fixed: 2
 
+  DISCRETE_ST:
+    label: "Surface Temperature Discrete"
+    type: "discrete"
+    band: "DISCRETE_TEMP"
+    values:
+      1: ["low","blue"]
+      2: ["medium","purple"]
+      3: ["high","red"]
+
   REF:
     label: "Reflectance"
     type: "rgb"
@@ -94,17 +104,21 @@ layers:
     red_gamma: 0.5      # gamma correction - boost reds (smaller values increase boost)
     green_gamma: 0.5    # gamma correction - boost greens (smaller values increase boost)
     blue_gamma: 0.5     # gamma correction - boost blues (smaller values increase boost)
-    min_value: 0.0      # apply linear normalisation with this minimum value
-    max_value: 0.5      # apply linear normalisation with this maximum value
-    low_percentile: 2   # apply linear normalisation with the minimum value computed from this percentile
-    high_percentile: 98 # apply linear normalisation with the maximum value computed from this percentile
+    # additionally, specify EITHER min_value/max_value OR low_percentile/hight_percentile to restrict the value range
+    # min_value: 0.0      # apply linear normalisation with this minimum value
+    # max_value: 0.5      # apply linear normalisation with this maximum value
+    # low_percentile: 2   # apply linear normalisation with the minimum value computed from this percentile
+    # high_percentile: 98 # apply linear normalisation with the maximum value computed from this percentile
 
   OSM:
     label: "Open Street Map"
     type: "wms"
     scale: 1  # increase this to request a larger, more detailed WMS image
       # specify a WMS provider URL that should include placeholders {WIDTH}, {HEIGHT}, {XMIN}, {YMIN}, {XMAX}, {YMAX}
-      # not that the URL should specify the correct CRS for the projection used in the variable's x and y coordinates
+      # note that the URL should specify the correct CRS for the projection used in the variable's x and y coordinates
     url: "https://eocis.org/mapproxy/service?service=WMS&request=GetMap&layers=osm&styles=&format=image%2Fpng&transparent=false&version=1.1.1&width={WIDTH}&height={HEIGHT}&srs=EPSG%3A27700&bbox={XMIN},{YMIN},{XMAX},{YMAX}"
 
-
+terrain_view:
+  # normally the terrain view would use digital elevation data, for illustrative purposes we can use surface temperature
+  based_on_layer: ST
+  pixel_size_in_elevation_units: 5
