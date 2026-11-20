@@ -215,9 +215,9 @@ class LayerBase:
         xc = self.converter.get_x_coords(ds)
         yc = self.converter.get_y_coords(ds)
         if len(xc.shape) != 1:
-            return "x_coordinate {self.x_coordinate} must be 1-dimensional"
+            return f"x_coordinate {self.x_coordinate} must be 1-dimensional"
         if len(yc.shape) != 1:
-            return "y_coordinate {self.y_coordinate} must be 1-dimensional"
+            return f"y_coordinate {self.y_coordinate} must be 1-dimensional"
 
         if float(xc.data[0]) > float(xc.data[-1]):
             self.fliplr = True
