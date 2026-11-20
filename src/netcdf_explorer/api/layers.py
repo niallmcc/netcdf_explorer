@@ -104,79 +104,13 @@ def save_image_discrete(arr,path,values):
     im = Image.fromarray(np.uint8((np.vectorize(get_rgba,signature='()->(n)')(arr))),mode="RGBA")
     im.save(path)
 
-class LayerGroup:
+class LayerCommon:
+    """Settings shared by every layer and layer group: name, label, group and which views it appears in."""
 
-    def __init__(self, layer, converter, layer_name, layer_label, sublayers):
-        self.layer = layer
+    def __init__(self, converter, layer_name, layer_label):
         self.converter = converter
         self.layer_name = layer_name
         self.layer_label = layer_label
-        self.sublayers = sublayers
-        self.grid_view = False
-        self.overlay_view = False
-
-    def set_grid_view(self, grid_view):
-        self.grid_view = grid_view
-
-    def get_grid_view(self):
-        return self.grid_view
-
-    def set_overlay_view(self, overlay_view):
-        self.overlay_view = overlay_view
-
-    def get_overlay_view(self):
-        return self.overlay_view
-
-    def has_legend(self):
-        return self.sublayers[0].has_legend()
-
-    def build_legend(self, path):
-        return self.sublayers[0].build_legend(path)
-
-    def check(self, ds):
-        remove_layers = []
-        for layer in self.sublayers:
-            err = layer.check(ds)
-            if err:
-                self.converter.logger.warning(f"Unable to add layer {layer.layer_name}: {err}")
-                remove_layers.append(layer)
-
-        for layer in remove_layers:
-            self.sublayers.remove(layer)
-
-        if len(self.sublayers) == 0:
-            return "No valid layers in this group"
-
-    def build(self,ds,path):
-        for layer in self.sublayers:
-            layer.build(ds,path)
-
-    def save_data(self):
-        return False
-
-    def get_layers(self):
-        return self.sublayers
-
-    def get_sublayers(self):
-        return self.sublayers
-
-class LayerBase:
-
-    def __init__(self, layer, converter, layer_name, layer_label, selectors=None):
-        self.layer_name = layer_name
-        self.layer_label = layer_label
-        self.selectors = selectors if selectors is not None else {}
-        self.flipud = False
-        self.fliplr = False
-        self.converter = converter
-        # a layer may name its own x and y dimensions (see LayerFactory.check_layer_dimensions);
-        # the case dimension and the coordinates always come from the top-level configuration
-        self.case_dimension = converter.case_dimension
-        self.x_dimension = layer.get("dimensions",{}).get("x",converter.x_dimension)
-        self.y_dimension = layer.get("dimensions",{}).get("y",converter.y_dimension)
-        self.time_coordinate = converter.time_coordinate
-        self.x_coordinate = converter.x_coordinate
-        self.y_coordinate = converter.y_coordinate
         self.group = None
         self.case_wise = False
         self.grid_view = False
@@ -205,6 +139,66 @@ class LayerBase:
 
     def get_overlay_view(self):
         return self.overlay_view
+
+    def save_data(self):
+        return False
+
+    def get_sublayers(self):
+        return None
+
+
+class LayerGroup(LayerCommon):
+
+    def __init__(self, layer, converter, layer_name, layer_label, sublayers):
+        super().__init__(converter, layer_name, layer_label)
+        self.layer = layer
+        self.sublayers = sublayers
+
+    def has_legend(self):
+        return self.sublayers[0].has_legend()
+
+    def build_legend(self, path):
+        return self.sublayers[0].build_legend(path)
+
+    def check(self, ds):
+        remove_layers = []
+        for layer in self.sublayers:
+            err = layer.check(ds)
+            if err:
+                self.converter.logger.warning(f"Unable to add layer {layer.layer_name}: {err}")
+                remove_layers.append(layer)
+
+        for layer in remove_layers:
+            self.sublayers.remove(layer)
+
+        if len(self.sublayers) == 0:
+            return "No valid layers in this group"
+
+    def build(self,ds,path):
+        for layer in self.sublayers:
+            layer.build(ds,path)
+
+    def get_layers(self):
+        return self.sublayers
+
+    def get_sublayers(self):
+        return self.sublayers
+
+class LayerBase(LayerCommon):
+
+    def __init__(self, layer, converter, layer_name, layer_label, selectors=None):
+        super().__init__(converter, layer_name, layer_label)
+        self.selectors = selectors if selectors is not None else {}
+        self.flipud = False
+        self.fliplr = False
+        # a layer may name its own x and y dimensions (see LayerFactory.check_layer_dimensions);
+        # the case dimension and the coordinates always come from the top-level configuration
+        self.case_dimension = converter.case_dimension
+        self.x_dimension = layer.get("dimensions",{}).get("x",converter.x_dimension)
+        self.y_dimension = layer.get("dimensions",{}).get("y",converter.y_dimension)
+        self.time_coordinate = converter.time_coordinate
+        self.x_coordinate = converter.x_coordinate
+        self.y_coordinate = converter.y_coordinate
 
     def check(self, ds):
         for variable in [self.x_coordinate, self.y_coordinate, self.time_coordinate]:
@@ -252,13 +246,6 @@ class LayerBase:
         if self.fliplr:
             arr = np.fliplr(arr)
         return arr
-
-    def save_data(self):
-        return False
-
-    def get_sublayers(self):
-        return None
-
 
 class LayerRGB(LayerBase):
 
