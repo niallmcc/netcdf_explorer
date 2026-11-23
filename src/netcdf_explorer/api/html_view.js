@@ -19,7 +19,7 @@ class ImageFetcher {
     }
 
     submit(image_id) {
-        if (!(image_id in this.pending_image_ids)) {
+        if (!this.pending_image_ids.has(image_id)) {
             this.pending_image_ids.add(image_id);
             this.queued_image_ids.push(image_id);
             if (this.fetching < this.concurrency) {
@@ -32,7 +32,7 @@ class ImageFetcher {
     async start_fetching() {
         this.fetching += 1;
         while(this.queued_image_ids.length > 0) {
-            await this.fetch(this.queued_image_ids.splice(0,1));
+            await this.fetch(this.queued_image_ids.shift());
         }
         this.fetching -= 1;
     }
@@ -335,12 +335,14 @@ class HtmlView {
         this.scenes.layers.forEach(layer => {
             let group = this.get_layer_group(layer.name);
             this.layer_opacities[layer.name] = 1;
-            if (group && group in this.layer_group_active_layers) {
+            if (group && this.scenes.layer_groups[group][0] !== layer.name) {
                 // hide layers that are grouped if they are not the first layer in their group
                 this.lm.set_layer_opacity(layer.name, 0);
             } else {
                 this.lm.set_layer_opacity(layer.name, 1);
-                this.layer_group_active_layers[group] = layer.name;
+                if (group) {
+                    this.layer_group_active_layers[group] = layer.name;
+                }
             }
             let r = document.getElementById(layer.name + "_opacity");
             if (r) {
@@ -405,18 +407,12 @@ class HtmlView {
     }
 
     init_layer_groups() {
-        // initialise layer groups to show the first layer
-        let groups_initialised = {};
-        this.scenes.layers.forEach(layer => {
-            let group_name = this.get_layer_group(layer.name);
-            if (group_name) {
-                if (!(group_name in groups_initialised)) {
-                    this.show_group_row(layer.name);
-                    this.show_group_column(layer.name);
-                    groups_initialised[layer.name] = true;
-                }
-            }
-        });
+        // initialise layer groups to show their first layer, in the order the configuration lists them
+        for (let group_name in this.scenes.layer_groups) {
+            let first_layer_name = this.scenes.layer_groups[group_name][0];
+            this.show_group_row(first_layer_name);
+            this.show_group_column(first_layer_name);
+        }
     }
 
     bind_open_buttons() {
@@ -890,13 +886,12 @@ class HtmlView {
             this.lm.set_layer_opacity(layer_name, opacity);
             let group_name = this.get_layer_group(layer_name);
             if (group_name) {
-                // this layer belongs to a group
-                // apply the same opacity to all layers in the same group
+                // this layer belongs to a group, and is the one shown. Record the same opacity for the other
+                // layers in the group, which stay hidden, so it is kept when the group shows another layer.
                 let grouped_layers = this.scenes.layer_groups[group_name];
                 grouped_layers.forEach((group_layer_name) => {
                     if (layer_name !== group_layer_name) {
                         this.layer_opacities[group_layer_name] = opacity;
-                        this.lm.set_layer_opacity(layer_name, opacity);
                         let r = document.getElementById(group_layer_name + "_opacity");
                         if (r) {
                             r.value = evt.target.value;

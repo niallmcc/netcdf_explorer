@@ -865,14 +865,11 @@ class HTMLGenerator:
             column_ids += ["info"]
             columns_hidden += [False]
 
-        groups = set()
         for layer_definition in grid_layers:
             group = layer_definition.get_group()
             column_ids.append(layer_definition.layer_name + "_col")
-            # if this column is one of a group and not the first, hide it initially
-            columns_hidden.append(bool(group and group in groups))
-            if group:
-                groups.add(group)
+            # if this column is one of a group and not the group's first layer, hide it initially
+            columns_hidden.append(bool(group and group.get_layers()[0] is not layer_definition))
 
         tf.set_column_ids(column_ids, columns_hidden)
 
@@ -996,13 +993,10 @@ class HTMLGenerator:
         slider_container.add_element("input", {"type": "button", "id": "close_all_sliders", "value": "Hide All Layers"})
         slider_table = slider_container.add_element("table", {"id": "slider_controls"})
 
-        groups = set()
         for layer_definition in self.flatten_layers(self.layer_definitions, only_overlay_view=True):
             group = layer_definition.get_group()
             # only the first layer of a group is shown initially
-            hidden = bool(group and group in groups)
-            if group:
-                groups.add(group)
+            hidden = bool(group and group.get_layers()[0] is not layer_definition)
             self.build_layer_control_row(slider_table, layer_definition, hidden)
 
     def build_layer_control_row(self, slider_table, layer_definition, hidden):

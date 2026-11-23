@@ -32,9 +32,10 @@ GRID_SIZE = (320, 256)
 COARSE_GRID_SIZE = (80, 64)
 
 # layers in example_layers.yaml built from the input data at full resolution (one image per case).
+# ST_fine and ST_coarse are the two layers of the ST layer group.
 # CLOUD_MASK, ALL_CLOUD_MASK and DISCRETE_ST use bands from derive_bands, so they also check expression evaluation.
 # The OSM layer is left out because it is fetched over the network from a WMS server.
-CASE_LAYERS = ["CLOUD_MASK", "ALL_CLOUD_MASK", "ST", "DISCRETE_ST", "REF"]
+CASE_LAYERS = ["CLOUD_MASK", "ALL_CLOUD_MASK", "ST_fine", "DISCRETE_ST", "REF"]
 
 BIGPLOT_BORDER = 20  # default border, in pixels, on each side of a bigplot image
 
@@ -118,6 +119,15 @@ class Test(unittest.TestCase):
         self.assertEqual(len({scene["data_srcs"]["Copernicus_DEM"]["url"] for scene in scenes["index"]}), 1)
         self.assertEqual(scenes["terrain_view"],
                          {"elevation_layer": "Copernicus_DEM", "pixel_size_in_elevation_units": 50})
+
+        # the ST layer group initially shows its first layer, ST_fine, in both the grid and overlay views
+        self.assertEqual(scenes["layer_groups"], {"ST": ["ST_fine", "ST_coarse"]})
+        with open(os.path.join(output_folder, "index.html")) as f:
+            html = f.read()
+        self.assertIn('<col id="ST_fine_col"/>', html)
+        self.assertIn('<col id="ST_coarse_col" style="visibility:collapse;"/>', html)
+        self.assertIn('<tr id="ST_fine_overlay_row">', html)
+        self.assertIn('<tr id="ST_coarse_overlay_row" style="display:none;">', html)
 
         download_path = os.path.join(output_folder, os.path.basename(INPUT_PATH))
         self.assertEqual(os.path.exists(download_path), expect_download_link)
@@ -352,15 +362,18 @@ class TestLayerDimensions(unittest.TestCase):
     def test_band_without_the_layer_dimensions_is_skipped(self):
         config = load_example_config()
         # ST is on the full resolution grid, not the coarse grid this layer is set up for
-        config["layers"]["ST_coarse"]["band"] = "ST"
+        config["layers"]["ST"]["layers"]["coarse"]["band"] = "ST"
         del config["layers"]["OSM"]
         with tempfile.TemporaryDirectory() as tmp, self.assertLogs(level="WARNING") as logs:
             HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
                           add_download_link=False, show_progress=False).run()
             with open(os.path.join(tmp, "scenes.json")) as f:
-                layer_names = [layer["name"] for layer in json.load(f)["layers"]]
+                scenes = json.load(f)
+        layer_names = [layer["name"] for layer in scenes["layers"]]
         self.assertNotIn("ST_coarse", layer_names)
-        self.assertIn("ST", layer_names)
+        self.assertIn("ST_fine", layer_names)
+        # the rest of the layer group is kept
+        self.assertEqual(scenes["layer_groups"], {"ST": ["ST_fine"]})
         self.assertTrue(any("ST_coarse" in message and "(time, nj, ni)" in message and "ni2" in message
                             for message in logs.output), logs.output)
 
@@ -564,7 +577,7 @@ class TestConfigErrors(unittest.TestCase):
 
     def test_config_error_writes_no_output(self):
         config = load_example_config()
-        del config["layers"]["ST"]["min_value"]
+        del config["layers"]["ST"]["layers"]["fine"]["min_value"]
         with tempfile.TemporaryDirectory() as tmp:
             output_folder = os.path.join(tmp, "out")
             with self.assertRaises(ConfigError):
@@ -599,9 +612,9 @@ class TestGenerateHtmlConfigErrors(unittest.TestCase):
 
     def test_layer_missing_setting(self):
         config = load_example_config()
-        del config["layers"]["ST"]["min_value"]
+        del config["layers"]["ST"]["layers"]["fine"]["min_value"]
         result = self.run_with_config(yaml.dump(config))
-        self.assertCleanError(result, "Error in config file", "'ST'", "'min_value'")
+        self.assertCleanError(result, "Error in config file", "'ST_fine'", "'min_value'")
 
     def test_derived_band_unknown_function(self):
         config = load_example_config()
