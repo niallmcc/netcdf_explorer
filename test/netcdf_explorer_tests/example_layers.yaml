@@ -23,6 +23,14 @@ image:
 info:
   Date: "${str(data[\"time\"].data)[0:19]}"
 
+# derive new bands from expressions using the variables in the input dataset. Expressions can use:
+#     arithmetic: + - * / and unary minus, for example -ST
+#     bitwise operators on integers: & |
+#     comparisons: == > >= < <=
+#     logical operators: and or not
+#     the function IF(condition, value_if_true, value_if_false)
+# operators bind in this order, most tightly first: unary - and not, then * /, then + -, then & |, then comparisons,
+# then and/or. Use parentheses to change the order.
 derive_bands:
   CLOUD_MASK: "not (QA_PIXEL & 8 == 0)"
   EXTENDED_CLOUD_MASK: "not (QA_PIXEL & 30 == 0)"

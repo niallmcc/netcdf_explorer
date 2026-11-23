@@ -51,6 +51,39 @@ from netcdf_explorer.fragments.select import SelectFragment
 AGGREGATION_FUNCTIONS = ("mean", "min", "max", "median")
 TIMESERIES_TYPES = ("timeseries", "seasonal")
 
+
+def as_int(arr):
+    return np.astype(arr, int)
+
+
+# operators and functions that can be used in derive_bands expressions
+# binary operators map to (precedence, function), a higher precedence binds more tightly
+EXPRESSION_BINARY_OPERATORS = {
+    "*": (5, np.multiply),
+    "/": (5, np.divide),
+    "+": (4, np.add),
+    "-": (4, np.subtract),
+    "|": (3, lambda a, b: np.bitwise_or(as_int(a), as_int(b))),
+    "&": (3, lambda a, b: np.bitwise_and(as_int(a), as_int(b))),
+    "==": (2, np.equal),
+    ">": (2, np.greater),
+    ">=": (2, np.greater_equal),
+    "<": (2, np.less),
+    "<=": (2, np.less_equal),
+    "and": (1, lambda a, b: np.logical_and(as_int(a), as_int(b))),
+    "or": (1, lambda a, b: np.logical_or(as_int(a), as_int(b))),
+}
+
+EXPRESSION_UNARY_OPERATORS = {
+    "not": np.logical_not,
+    "-": np.negative,
+}
+
+# function names are not case sensitive and map to (number of arguments, function)
+EXPRESSION_FUNCTIONS = {
+    "if": (3, np.where),
+}
+
 src_folder = os.path.split(__file__)[0]
 
 js_paths = [os.path.join(src_folder, "cmap.js"),
@@ -191,20 +224,10 @@ class HTMLGenerator:
     def create_expression_parser():
         """Create the parser used to read derive_bands expressions."""
         parser = ExpressionParser()
-        parser.add_unary_operator("not")
-        parser.add_binary_operator("*", 5)
-        parser.add_binary_operator("/", 5)
-        parser.add_binary_operator("+", 4)
-        parser.add_binary_operator("-", 4)
-        parser.add_binary_operator("|", 3)
-        parser.add_binary_operator("&", 3)
-        parser.add_binary_operator("==",2)
-        parser.add_binary_operator(">", 2)
-        parser.add_binary_operator(">=", 2)
-        parser.add_binary_operator("<", 2)
-        parser.add_binary_operator("<=", 2)
-        parser.add_binary_operator("and",1)
-        parser.add_binary_operator("or",1)
+        for operator in EXPRESSION_UNARY_OPERATORS:
+            parser.add_unary_operator(operator)
+        for (operator, (precedence, _)) in EXPRESSION_BINARY_OPERATORS.items():
+            parser.add_binary_operator(operator, precedence)
         return parser
 
     def create_layers(self, config):
@@ -345,6 +368,7 @@ class HTMLGenerator:
             except ExpressionParser.ParseError as ex:
                 raise ConfigError(f"derived band '{band_name}' has an invalid expression '{band_expression}': "
                                   f"{ex.error_type} at position {ex.error_position}") from ex
+            self.check_expression(band_name, parsed_expression)
             try:
                 arr = self.evaluate_expression(parsed_expression, from_bands)
             except Exception as ex:
@@ -357,79 +381,41 @@ class HTMLGenerator:
                     dims = self.input_ds[band].dims
             self.input_ds[band_name] = xr.DataArray(arr,dims=dims)
 
+    @staticmethod
+    def check_expression(band_name, parsed_expression):
+        """Raise ConfigError if a parsed expression calls an unknown function or passes the wrong number of arguments."""
+        if "function" in parsed_expression:
+            function = parsed_expression["function"]
+            if function.lower() not in EXPRESSION_FUNCTIONS:
+                raise ConfigError(f"derived band '{band_name}' uses unknown function '{function}', "
+                                  f"should be one of: {', '.join(EXPRESSION_FUNCTIONS)}")
+            (arg_count, _) = EXPRESSION_FUNCTIONS[function.lower()]
+            if len(parsed_expression["args"]) != arg_count:
+                raise ConfigError(f"derived band '{band_name}' function '{function}' needs exactly {arg_count} "
+                                  f"arguments, got {len(parsed_expression['args'])}")
+        for arg in parsed_expression.get("args", []):
+            HTMLGenerator.check_expression(band_name, arg)
+
     def evaluate_expression(self, parsed_expression, from_bands_accumulator):
+        """Evaluate an expression checked by check_expression, adding the names of the bands it reads to from_bands_accumulator."""
         if "name" in parsed_expression:
             source_band = parsed_expression["name"]
-            if source_band in self.input_ds:
-                from_bands_accumulator.append(source_band)
-                return self.input_ds[source_band].data
-            else:
-                raise Exception(f"Expression references unknown band: {source_band}")
-        elif "function" in parsed_expression:
-            function = parsed_expression["function"]
-            args = parsed_expression["args"]
-            arrays = []
-            for arg in args:
-                arrays.append(self.evaluate_expression(arg, from_bands_accumulator))
-            if function.lower() == "if":
-                if (len(arrays) == 3):
-                    return np.where(arrays[0],arrays[1],arrays[2])
-                else:
-                    raise ConfigError(f"Function if in derived band requires exactly 3 arguments")
-            else:
-                raise ConfigError(f"Unrecognised function {function} in derived band")
-        elif "operator" in parsed_expression:
-            operator = parsed_expression["operator"]
-            args = parsed_expression["args"]
-            arrays = []
-            for arg in args:
-                arrays.append(self.evaluate_expression(arg,from_bands_accumulator))
-            if operator == "==":
-                assert len(args) == 2
-                return np.equal(arrays[0],arrays[1])
-            elif operator == ">":
-                assert len(args) == 2
-                return np.greater(arrays[0],arrays[1])
-            elif operator == ">=":
-                assert len(args) == 2
-                return np.greater_equal(arrays[0],arrays[1])
-            elif operator == "<":
-                assert len(args) == 2
-                return np.less(arrays[0],arrays[1])
-            elif operator == "<=":
-                assert len(args) == 2
-                return np.less_equal(arrays[0],arrays[1])
-            elif operator == "&":
-                assert len(args) == 2
-                return np.bitwise_and(np.astype(arrays[0],int),np.astype(arrays[1],int))
-            elif operator == "|":
-                assert len(args) == 2
-                return np.bitwise_or(np.astype(arrays[0],int), np.astype(arrays[1],int))
-            elif operator == "and":
-                assert len(args) == 2
-                return np.logical_and(np.astype(arrays[0],int),np.astype(arrays[1],int))
-            elif operator == "or":
-                assert len(args) == 2
-                return np.logical_or(np.astype(arrays[0],int), np.astype(arrays[1],int))
-            elif operator == "not":
-                assert(len(args) == 1)
-                return np.logical_not(arrays[0])
-            elif operator == "*":
-                assert len(args) == 2
-                return np.multiply(arrays[0],arrays[1])
-            elif operator == "/":
-                assert len(args) == 2
-                return np.divide(arrays[0],arrays[1])
-            elif operator == "+":
-                assert len(args) == 2
-                return np.add(arrays[0],arrays[1])
-            elif operator == "-":
-                assert len(args) == 2
-                return np.subtract(arrays[0], arrays[1])
-            else:
-                raise Exception(f"Unknown operator: {operator}")
-        elif "literal" in parsed_expression:
+            if source_band not in self.input_ds:
+                raise ValueError(f"Expression references unknown band: {source_band}")
+            from_bands_accumulator.append(source_band)
+            return self.input_ds[source_band].data
+        if "literal" in parsed_expression:
             return np.array([parsed_expression["literal"]])
+        arrays = [self.evaluate_expression(arg, from_bands_accumulator) for arg in parsed_expression["args"]]
+        if "function" in parsed_expression:
+            (_, function) = EXPRESSION_FUNCTIONS[parsed_expression["function"].lower()]
+            return function(*arrays)
+        # - is both a unary and a binary operator, so look up the operator by its number of arguments
+        operator = parsed_expression["operator"]
+        if len(arrays) == 1:
+            return EXPRESSION_UNARY_OPERATORS[operator](arrays[0])
+        (_, function) = EXPRESSION_BINARY_OPERATORS[operator]
+        return function(*arrays)
 
     def reduce_coordinate_dimension(self, ds, coordinate_name, case_dimension):
         dims = ds[coordinate_name].dims
