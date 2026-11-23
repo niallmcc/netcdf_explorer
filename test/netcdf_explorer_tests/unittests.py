@@ -198,6 +198,75 @@ class TestExpressionParser(unittest.TestCase):
                 self.parser.parse(expression)
 
 
+class TestDerivedBandExpressions(unittest.TestCase):
+    """Parse and evaluate expressions with the operators and functions used for derive_bands."""
+
+    def setUp(self):
+        self.parser = HTMLGenerator.create_expression_parser()
+        self.ds = xr.Dataset({"A": ("x", np.array([-2.0, 0.0, 1.0, 3.0])),
+                              "B": ("x", np.array([1.0, 1.0, 2.0, 2.0])),
+                              "Q": ("x", np.array([0, 8, 9, 30]))})
+
+    def evaluate(self, expression):
+        parsed = self.parser.parse(expression)
+        HTMLGenerator.check_expression("D", parsed)
+        from_bands = []
+        # evaluate_expression only needs input_ds, so skip HTMLGenerator.__init__, which reads a whole config
+        generator = HTMLGenerator.__new__(HTMLGenerator)
+        generator.input_ds = self.ds
+        result = generator.evaluate_expression(parsed, from_bands)
+        return (np.broadcast_to(result, (4,)).tolist(), from_bands)
+
+    def test_operators(self):
+        cases = [
+            ("A + B * 2", [0, 2, 5, 7]),
+            ("(A + B) * 2", [-2, 2, 6, 10]),
+            ("A - B - 1", [-4, -2, -2, 0]),
+            ("A / B", [-2, 0, 0.5, 1.5]),
+            ("Q & 8", [0, 8, 8, 8]),
+            ("Q | 1", [1, 9, 9, 31]),
+            ("A == 1", [False, False, True, False]),
+            ("A > 0", [False, False, True, True]),
+            ("A >= 1", [False, False, True, True]),
+            ("A < 0", [True, False, False, False]),
+            ("A<=0", [True, True, False, False]),
+            ("A > 0 and B > 1", [False, False, True, True]),
+            ("A > 2 or B < 2", [True, True, False, True]),
+            ("not (Q & 8 == 0)", [False, True, True, True]),
+            ("(not Q) and B < 2", [True, False, False, False]),
+            ("-A", [2, 0, -1, -3]),
+            ("A - -1", [-1, 1, 2, 4]),
+            ("B * -A", [2, 0, -2, -6]),
+            ("A > -1", [False, True, True, True]),
+            ("1.5e1 - A", [17, 15, 14, 12]),
+        ]
+        for (expression, expected) in cases:
+            with self.subTest(expression=expression):
+                (result, _) = self.evaluate(expression)
+                self.assertEqual(result, expected)
+
+    def test_if_function(self):
+        for expression in ["IF(A > 0, B, -B)", "if(A > 0, B, -B)"]:
+            with self.subTest(expression=expression):
+                (result, from_bands) = self.evaluate(expression)
+                self.assertEqual(result, [-1, -1, 2, 2])
+                self.assertEqual(sorted(set(from_bands)), ["A", "B"])
+        (result, _) = self.evaluate("IF(A > 2, 3, IF(A > 0, 2, 1))")
+        self.assertEqual(result, [1, 1, 2, 3])
+
+    def test_invalid_function_calls_raise_config_error(self):
+        cases = [
+            ("max(B)", "unknown function 'max'"),
+            ("IF(A > 0, 1)", "needs exactly 3 arguments, got 2"),
+            ("A + IF(A > 0, 1, 2, 3)", "needs exactly 3 arguments, got 4"),
+        ]
+        for (expression, expected_fragment) in cases:
+            with self.subTest(expression=expression), self.assertRaises(ConfigError) as cm:
+                HTMLGenerator.check_expression("D", self.parser.parse(expression))
+            self.assertIn("'D'", str(cm.exception))
+            self.assertIn(expected_fragment, str(cm.exception))
+
+
 class TestLayerDimensions(unittest.TestCase):
 
     def test_layer_with_own_x_and_y_dimension_names(self):
@@ -437,6 +506,12 @@ class TestGenerateHtmlConfigErrors(unittest.TestCase):
         del config["layers"]["ST"]["min_value"]
         result = self.run_with_config(yaml.dump(config))
         self.assertCleanError(result, "Error in config file", "'ST'", "'min_value'")
+
+    def test_derived_band_unknown_function(self):
+        config = load_example_config()
+        config["derive_bands"]["ST_MAX"] = "max(ST)"
+        result = self.run_with_config(yaml.dump(config))
+        self.assertCleanError(result, "Error in config file", "'ST_MAX'", "unknown function 'max'")
 
     def test_missing_case_dimension(self):
         config = load_example_config()

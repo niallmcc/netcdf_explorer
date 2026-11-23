@@ -48,6 +48,9 @@ class ExpressionParser:
     def add_binary_operator(self, name, precedence):
         self.binary_operators[name] = precedence
 
+    def is_operator_prefix(self, s):
+        return any(operator.startswith(s) for operator in list(self.binary_operators) + list(self.unary_operators))
+
     def is_alphanum(self, c):
         return self.is_alpha(c) or (c >= "0" and c <= "9")
 
@@ -171,7 +174,10 @@ class ExpressionParser:
                 self.current_token_start = self.index
                 self.current_token = c
             else:
-                if self.current_token in self.unary_operators or self.current_token in self.binary_operators:
+                # take the longest operator that matches, so that >= is read as one operator rather than > then =
+                if self.is_operator_prefix(self.current_token + c):
+                    pass
+                elif self.current_token in self.unary_operators or self.current_token in self.binary_operators:
                     self.flush_token()
                     self.current_token_type = "operator"
                     self.current_token_start = self.index
@@ -387,11 +393,13 @@ class ExpressionParser:
             arg = args[i]
             prev_arg = args[i-1] if (i>0) else None
             next_arg = args[i+1] if (i<len(args)-1) else None
-            if "operator" in arg and arg["operator"] in self.unary_operators:
-                if prev_arg is None or "operator" in prev_arg:
+            if "operator" in arg and "args" not in arg and arg["operator"] in self.unary_operators:
+                # the operator is unary if it starts the expression or follows another operator
+                # (a parenthesised sub-expression such as (A+B) also has an operator, but already has its args)
+                if prev_arg is None or ("operator" in prev_arg and "args" not in prev_arg):
                     if next_arg is not None:
                         # special case, convert unary - followed by a number literal to a negative number literal
-                        if arg.get("operator","") == "-" and (isinstance(next_arg["literal"],float) or isinstance(next_arg["literal"],int)):
+                        if arg.get("operator","") == "-" and isinstance(next_arg.get("literal"), (float, int)):
                             args = args[0:i]+[{
                                 "literal": -1*next_arg["literal"],
                                 "pos": arg["pos"]
