@@ -24,7 +24,7 @@ Installation into a miniforge enviromnent is suggested.  See [https://github.com
 mamba create -n netcdfexplorer_env python=3.10
 mamba activate netcdfexplorer_env
 mamba install "numpy>=2.0" pillow netcdf4 xarray matplotlib requests datashader pyproj mako pyyaml
-pip install git+https://github.com/surftemp/netcdf_explorer.git
+pip install git+https://github.com/niallmcc/netcdf_explorer.git
 ```
 
 ## generate_html
