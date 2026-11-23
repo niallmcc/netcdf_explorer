@@ -67,10 +67,43 @@ class HtmlView {
 
         this.base_url = window.location.origin + window.location.pathname;
 
-        this.root_element = document.getElementById("root_element");
         this.spinner = null;
 
-        // locate overlay controls and other elements
+        this.current_page = 0;
+        this.max_page = 0;
+
+        // record custom min/max/cmaps selected in overlay view for data layers only
+        this.data_layers = {};
+
+        // for each layer_group, record the current activate layer
+        this.layer_group_active_layers = {};
+
+        // record the last image url viewed in overlay mode for each layer
+        this.overlay_urls = {};
+
+        this.lm = null;
+
+        this.timeseries_charts = null;
+
+        this.tv = null; // populated with a TerrainView object when in "terrain view" mode
+
+        this.find_elements();
+
+        if (!this.grid_container && this.timeseries_container) {
+            this.timeseries_container.style.display = "block";
+            this.load_timeseries().then(() => {
+            });
+        }
+
+        this.bind_terrain_zoom();
+        this.setup_lazy_image_loading();
+    }
+
+    find_elements() {
+        // locate the controls and other elements in the page. Elements that a page does not include are null.
+        this.root_element = document.getElementById("root_element");
+
+        // overlay view controls
         this.time_range = document.getElementById("time_index");
         this.zoom_control = document.getElementById("zoom_control");
         this.info_content = document.getElementById("info_content"); // optional, may be undefined
@@ -95,9 +128,6 @@ class HtmlView {
 
         this.page_label = document.getElementById("page_label");
 
-        this.current_page = 0;
-        this.max_page = 0;
-
         this.show_data = document.getElementById("show_data");
         this.data_container = document.getElementById("data_container");
 
@@ -118,29 +148,10 @@ class HtmlView {
         this.exit_terrain_view_button = document.getElementById("exit_terrain_view");
         this.terrain_zoom = document.getElementById("terrain_zoom");
         this.terrain_zoom_value = document.getElementById("terrain_zoom_value");
+    }
 
-        // record custom min/max/cmaps selected in overlay view for data layers only
-        this.data_layers = {};
-
-        // for each layer_group, record the current activate layer
-        this.layer_group_active_layers = {};
-
-        // record the last image url viewed in overlay mode for each layer
-        this.overlay_urls = {};
-
-        this.lm = null;
-
-        this.timeseries_charts = null;
-
-        if (!this.grid_container) {
-            if (this.timeseries_container) {
-                this.timeseries_container.style.display = "block";
-                this.load_timeseries().then(() => {
-                });
-            }
-        }
-
-        this.tv = null; // populated with a TerrainView object when in "terrain view" mode
+    bind_terrain_zoom() {
+        // show the terrain zoom slider's value, and apply it to the terrain view when it changes
         if (this.terrain_zoom) {
             this.terrain_zoom_value.innerHTML = this.terrain_zoom.value;
             this.terrain_zoom.addEventListener("change", (evt) => {
@@ -155,6 +166,18 @@ class HtmlView {
                 }
             });
         }
+    }
+
+    setup_lazy_image_loading() {
+        // cache the data-uris for lazily loaded images
+        this.image_url_cache = {};
+        this.cached_image_ids = [];
+        this.image_url_cache_size = 500;
+
+        // define an ImageFetcher to lazily load the images
+        this.image_fetcher = new ImageFetcher(4, (image_id, url) => {
+            this.cache_image(image_id, url);
+        });
 
         let intersection_options = {
             "delay": 200 /* check every 200ms */
@@ -172,16 +195,6 @@ class HtmlView {
                 observer.observe(img);
             }
         });
-
-        // define an ImageFetcher to lazily load the images
-        this.image_fetcher = new ImageFetcher(4, (image_id, url) => {
-            this.cache_image(image_id, url);
-        });
-
-        // cache the data-uris for lazily loaded images
-        this.image_url_cache = {};
-        this.cached_image_ids = [];
-        this.image_url_cache_size = 500;
     }
 
     /**
@@ -456,19 +469,40 @@ class HtmlView {
     async init() {
         // initialise the view, to be called once load has completed
         // bind to the controls in this page
+        this.bind_view_buttons();
+        this.bind_scene_navigation();
+        this.bind_month_filters();
+        this.init_layer_opacities();
+        this.bind_panel_buttons();
+        this.bind_grid_layer_controls();
+        this.init_layer_groups();
+        this.bind_open_buttons();
+        this.bind_cmap_controls();
+        this.bind_terrain_view_buttons();
 
-
-        if (this.grid_view_button) {
-            this.grid_view_button.addEventListener("click", (evt) => {
-                this.show_container(this.grid_container);
-            });
+        this.update_filters();
+        this.open_initial_container();
+        if (this.time_range) {
+            this.update_time_range();
         }
 
-        if (this.grid_view_button2) {
-            this.grid_view_button2.addEventListener("click", (evt) => {
-                this.show_container(this.grid_container);
-            });
-        }
+        this.bind_date_pickers();
+        this.bind_page_controls();
+        this.update_page_size();
+        this.show_page();
+
+        await this.show();
+    }
+
+    bind_view_buttons() {
+        // buttons that switch between the grid, overlay and timeseries views
+        [this.grid_view_button, this.grid_view_button2].forEach(button => {
+            if (button) {
+                button.addEventListener("click", (evt) => {
+                    this.show_container(this.grid_container);
+                });
+            }
+        });
 
         if (this.overlay_view_button) {
             this.overlay_view_button.addEventListener("click", (evt) => {
@@ -485,7 +519,10 @@ class HtmlView {
                 }
             });
         }
+    }
 
+    bind_scene_navigation() {
+        // the overlay view's next and previous buttons and time slider
         if (this.next_button) {
             this.next_button.addEventListener("click", async (evt) => {
                 if (this.current_index < this.index.length - 1) {
@@ -515,14 +552,20 @@ class HtmlView {
                 }
             });
         }
+    }
 
+    bind_month_filters() {
         for (let month = 1; month <= 12; month += 1) {
             let cb_elt = document.getElementById("month" + month);
             if (cb_elt) {
                 cb_elt.addEventListener("change", this.create_month_filter_callback(month));
             }
         }
+    }
 
+    init_layer_opacities() {
+        // show each layer at full opacity, except grouped layers that are not the first in their group,
+        // and bind the overlay view's opacity sliders
         this.scenes.layers.forEach(layer => {
             let group = this.get_layer_group(layer.name);
             this.layer_opacities[layer.name] = 1;
@@ -539,30 +582,23 @@ class HtmlView {
                 r.addEventListener("input", this.create_opacity_callback(layer.name));
             }
         });
+    }
 
-        if (this.layer_container && this.show_layers) {
-            this.show_layers.addEventListener("click", (evt) => {
-                this.layer_container.style.display = "block";
-            });
-        }
-
-        if (this.filter_container && this.show_filters) {
-            this.show_filters.addEventListener("click", (evt) => {
-                this.filter_container.style.display = "block";
-            });
-        }
-
-        if (this.info_container && this.show_info) {
-            this.show_info.addEventListener("click", (evt) => {
-                this.info_container.style.display = "block";
-            });
-        }
-
-        if (this.data_container && this.show_data) {
-            this.show_data.addEventListener("click", (evt) => {
-                this.data_container.style.display = "block";
-            });
-        }
+    bind_panel_buttons() {
+        // buttons that open the overlay view's floating panels
+        const panels = [
+            [this.show_layers, this.layer_container],
+            [this.show_filters, this.filter_container],
+            [this.show_info, this.info_container],
+            [this.show_data, this.data_container]
+        ];
+        panels.forEach(([button, container]) => {
+            if (button && container) {
+                button.addEventListener("click", (evt) => {
+                    container.style.display = "block";
+                });
+            }
+        });
 
         if (this.close_all_btn) {
             this.close_all_btn.addEventListener("click", (evt) => {
@@ -574,50 +610,35 @@ class HtmlView {
                 });
             });
         }
+    }
 
-        const make_hide_column_callback = (col_id) => {
-            return (evt) => {
-                document.getElementById(col_id).style.visibility = "collapse";
-            }
-        }
-
-        const make_group_select_column_callback = (layer_name) => {
-            return (evt) => {
-                this.show_group_column(evt.target.value);
-                this.show_group_row(evt.target.value);
-            }
-        }
-
-        const make_group_select_row_callback = (layer_name) => {
-            return (evt) => {
-                this.show_group_column(evt.target.value);
-                this.show_group_row(evt.target.value);
-            }
+    bind_grid_layer_controls() {
+        // the grid view's buttons for hiding a layer's column, and the selectors for choosing a layer within a group
+        const select_group_layer = (evt) => {
+            this.show_group_column(evt.target.value);
+            this.show_group_row(evt.target.value);
         }
 
         this.scenes.layers.forEach(layer => {
-            let col_id = layer.name + "_col";
-            let hide_btn_id = layer.name + "_hide";
-            let hide_btn = document.getElementById(hide_btn_id);
+            let hide_btn = document.getElementById(layer.name + "_hide");
             if (hide_btn) {
-                hide_btn.addEventListener("click", make_hide_column_callback(col_id));
-                let group_name = this.get_layer_group(layer.name);
-                if (group_name) {
-                    let group_select_id = layer.name + "_group_select";
-                    let group_select = document.getElementById(group_select_id);
-                    if (group_select) {
-                        group_select.addEventListener("input", make_group_select_column_callback(layer.name));
-                    }
-
-                    let group_select_row_id = layer.name + "_group_select_row";
-                    let group_select_row = document.getElementById(group_select_row_id);
-                    if (group_select_row) {
-                        group_select_row.addEventListener("input", make_group_select_row_callback(layer.name));
-                    }
+                let col_id = layer.name + "_col";
+                hide_btn.addEventListener("click", (evt) => {
+                    document.getElementById(col_id).style.visibility = "collapse";
+                });
+                if (this.get_layer_group(layer.name)) {
+                    [layer.name + "_group_select", layer.name + "_group_select_row"].forEach(select_id => {
+                        let group_select = document.getElementById(select_id);
+                        if (group_select) {
+                            group_select.addEventListener("input", select_group_layer);
+                        }
+                    });
                 }
             }
         });
+    }
 
+    init_layer_groups() {
         // initialise layer groups to show the first layer
         let groups_initialised = {};
         this.scenes.layers.forEach(layer => {
@@ -630,13 +651,19 @@ class HtmlView {
                 }
             }
         });
+    }
 
+    bind_open_buttons() {
+        // the grid view's buttons for opening a scene in the overlay view
         for (let i = 0; i < this.scenes.index.length; i++) {
             let open_btn_id = "open_" + i + "_btn";
             let btn = document.getElementById(open_btn_id);
             btn.addEventListener("click", this.create_open_callback(i));
         }
+    }
 
+    bind_cmap_controls() {
+        // the overlay view's colour map and min/max controls, for layers with data
         for (let layer_idx in this.scenes.layers) {
             let layer = this.scenes.layers[layer_idx];
             if (layer.has_data) {
@@ -648,7 +675,9 @@ class HtmlView {
                 }
             }
         }
+    }
 
+    bind_terrain_view_buttons() {
         if (this.terrain_view_button) {
             this.terrain_view_button.addEventListener("click", async () => {
                 await this.open_terrain_view();
@@ -660,10 +689,10 @@ class HtmlView {
                 this.close_terrain_view();
             });
         }
+    }
 
-        this.update_filters();
-
-        // by default open the grid container if it exists
+    open_initial_container() {
+        // by default open the grid container if it exists, or the overlay view if the url sets a scene index
         if (this.grid_container) {
             const params = new URLSearchParams(window.location.search);
             if (params.has('index')) {
@@ -683,11 +712,9 @@ class HtmlView {
             // otherwise open the timeseries container
             this.show_container(this.timeseries_container);
         }
+    }
 
-        if (this.time_range) {
-            this.update_time_range();
-        }
-
+    bind_date_pickers() {
         if (this.grid_select_date) {
             this.grid_select_date.addEventListener("input", (evt) => {
                this.select_grid_date(this.grid_select_date.value);
@@ -699,7 +726,10 @@ class HtmlView {
                this.select_overlay_date(this.overlay_select_date.value);
             });
         }
+    }
 
+    bind_page_controls() {
+        // the grid view's page navigation
         this.prev_page_btn.addEventListener("click", (ev) => {
             this.prev_page();
         });
@@ -720,11 +750,29 @@ class HtmlView {
                  this.show_page();
              }
         });
+    }
 
-        this.update_page_size();
-        this.show_page();
-
-        await this.show();
+    setup_floating_panels() {
+        // make the overlay view's floating panels draggable and closable. All but the layer panel start hidden.
+        const panels = [
+            // [panel name, initial top, initial left, initially hidden]
+            ["layer", 400, 400, false],
+            ["filter", 100, 400, true],
+            ["info", 200, 400, true],
+            ["data", 400, 400, true]
+        ];
+        panels.forEach(([name, initial_top, initial_left, hidden]) => {
+            let container = document.getElementById(name + "_container");
+            if (container) {
+                this.setup_drag(container, document.getElementById(name + "_container_header"), initial_top, initial_left);
+                document.getElementById("close_" + name + "_btn").addEventListener("click", (evt) => {
+                    container.style.display = "none";
+                });
+                if (hidden) {
+                    container.style.display = "none";
+                }
+            }
+        });
     }
 
     show_group_column(layer_name) {
@@ -961,27 +1009,8 @@ class HtmlView {
             let layer_name = this.scenes.layers[idx].name;
             let image_url = this.update_image(layer_name);
             this.overlay_urls[layer_name] = image_url;
-
-            if ("classes" in this.scenes.layers[idx]) {
-                let table_container_ele = document.getElementById(layer_name+"_classes");
-                if (table_container_ele) {
-                    let table_html = "<table>";
-                    let classes = this.scenes.layers[idx]["classes"];
-                    for (let key in classes) {
-                        let label = classes[key]["label"];
-                        let colour = classes[key]["colour"];
-                        table_html += "<tr><td>";
-                        table_html += label;
-                        table_html += "</td><td>";
-                        table_html += '<div style="background-color:' + colour + ';">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>';
-                        table_html += '</td></tr>';
-                    }
-                    table_html += '</table>';
-                    table_container_ele.innerHTML = table_html;
-                }
-            }
+            this.show_layer_classes(this.scenes.layers[idx]);
         }
-
 
         if (this.info_content) {
             let info = this.index[this.current_index].info;
@@ -1004,6 +1033,28 @@ class HtmlView {
         this.prev_button.disabled = false;
 
         this.close_spinner();
+    }
+
+    show_layer_classes(layer) {
+        // fill the overlay view's legend table for a layer with classes (a discrete layer)
+        if ("classes" in layer) {
+            let table_container_ele = document.getElementById(layer.name + "_classes");
+            if (table_container_ele) {
+                let table_html = "<table>";
+                let classes = layer["classes"];
+                for (let key in classes) {
+                    let label = classes[key]["label"];
+                    let colour = classes[key]["colour"];
+                    table_html += "<tr><td>";
+                    table_html += label;
+                    table_html += "</td><td>";
+                    table_html += '<div style="background-color:' + colour + ';">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>';
+                    table_html += '</td></tr>';
+                }
+                table_html += '</table>';
+                table_container_ele.innerHTML = table_html;
+            }
+        }
     }
 
     async get_overlay_combined_image() {
@@ -1113,38 +1164,5 @@ window.addEventListener("load", async (ect) => {
     let hv = new HtmlView();
     await hv.load();
     hv.init();
-    let layer_container = document.getElementById("layer_container");
-    if (layer_container) {
-        hv.setup_drag(layer_container, document.getElementById("layer_container_header"), 400, 400);
-        document.getElementById("close_layer_btn").addEventListener("click", (evt) => {
-           layer_container.style.display = "none";
-        });
-    }
-
-    let filter_container = document.getElementById("filter_container");
-    if (filter_container) {
-        hv.setup_drag(filter_container, document.getElementById("filter_container_header"), 100, 400);
-        document.getElementById("close_filter_btn").addEventListener("click", (evt) => {
-           filter_container.style.display = "none";
-        });
-        filter_container.style.display = "none";
-    }
-
-    let info_container = document.getElementById("info_container");
-    if (info_container) {
-        hv.setup_drag(info_container, document.getElementById("info_container_header"), 200, 400);
-        document.getElementById("close_info_btn").addEventListener("click", (evt) => {
-           info_container.style.display = "none";
-        });
-        info_container.style.display = "none";
-    }
-
-    let data_container = document.getElementById("data_container");
-    if (data_container) {
-        hv.setup_drag(data_container, document.getElementById("data_container_header"), 400, 400);
-        document.getElementById("close_data_btn").addEventListener("click", (evt) => {
-           data_container.style.display = "none";
-        });
-        data_container.style.display = "none";
-    }
+    hv.setup_floating_panels();
 });
