@@ -253,7 +253,8 @@ class HTMLGenerator:
     def create_timeseries(self, config):
         """Check each timeseries in the configuration, keeping only variables and masks found in the input data.
 
-        Raises ConfigError if a mask is neither a variable in the input data nor a band in derive_bands. A mask that
+        A variable that is not in the input data is left out with a warning, and a timeseries with none of its
+        variables left is dropped with a warning, in the same way as a layer whose variable is missing. Raises ConfigError if a mask is neither a variable in the input data nor a band in derive_bands. A mask that
         is a derived band which could not be evaluated is left out, as the evaluation error has been logged.
 
         Returns a list of (timeseries_name, timeseries_spec, timeseries_detail) tuples.
@@ -270,6 +271,9 @@ class HTMLGenerator:
                 variable_name = variable_components[0]
                 if variable_name in self.input_ds:
                     valid_variables.append(variable)
+                else:
+                    self.logger.warning(f"Timeseries {timeseries_name}: leaving out variable {variable}, "
+                                        f"no variable {variable_name} in the input data")
 
             if len(valid_variables) == 0:
                 self.logger.warning(f"Unable to add timeseries {timeseries_name}, no valid variables")

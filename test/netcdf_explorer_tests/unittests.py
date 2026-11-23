@@ -562,15 +562,27 @@ class TestConfigErrors(unittest.TestCase):
         config = load_example_config()
         config["timeseries"]["ST_cloudy"]["variables"].append("NO_SUCH_VARIABLE")
         expected = copy.deepcopy(config)
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, self.assertLogs(level="WARNING") as logs:
             gen = HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
                                 add_download_link=False, show_progress=False)
             gen.close()
         self.assertEqual(config, expected)
-        # the generator itself only keeps the variables found in the input data
+        # the generator itself only keeps the variables found in the input data, with a warning for the others
         (_, spec, _) = gen.timeseries_definitions[0]
         self.assertEqual(spec["variables"], ["ST"])
         self.assertEqual(spec["masks"], ["EXTENDED_CLOUD_MASK"])
+        self.assertTrue(any("ST_cloudy" in message and "NO_SUCH_VARIABLE" in message for message in logs.output),
+                        logs.output)
+
+    def test_timeseries_without_any_variables_in_the_data_is_dropped(self):
+        config = load_example_config()
+        config["timeseries"]["ST_cloudy"]["variables"] = ["NO_SUCH_VARIABLE"]
+        with tempfile.TemporaryDirectory() as tmp, self.assertLogs(level="WARNING") as logs:
+            gen = HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
+                                add_download_link=False, show_progress=False)
+            gen.close()
+        self.assertEqual(gen.timeseries_definitions, [])
+        self.assertTrue(any("Unable to add timeseries ST_cloudy" in message for message in logs.output), logs.output)
 
     def test_unknown_timeseries_mask(self):
         config = load_example_config()
