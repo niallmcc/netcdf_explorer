@@ -33,9 +33,9 @@ COARSE_GRID_SIZE = (80, 64)
 
 # layers in example_layers.yaml built from the input data at full resolution (one image per case).
 # ST_fine and ST_coarse are the two layers of the ST layer group.
-# CLOUD_MASK, ALL_CLOUD_MASK and DISCRETE_ST use bands from derive_bands, so they also check expression evaluation.
+# CLOUD_MASK and DISCRETE_ST use bands from derive_bands, so they also check expression evaluation.
 # The OSM layer is left out because it is fetched over the network from a WMS server.
-CASE_LAYERS = ["CLOUD_MASK", "ALL_CLOUD_MASK", "ST_fine", "DISCRETE_ST", "REF"]
+CASE_LAYERS = ["CLOUD_MASK", "ST_fine", "DISCRETE_ST", "REF"]
 
 BIGPLOT_BORDER = 20  # default border, in pixels, on each side of a bigplot image
 
@@ -108,11 +108,9 @@ class Test(unittest.TestCase):
                 self.assertTrue(os.path.isfile(image_path), f"missing {image_path}")
                 with Image.open(image_path) as im:
                     self.assertEqual(im.size, GRID_SIZE, f"unexpected size for {image_path}")
-                # the coarse layer keeps its own resolution, in its image and its data file
+                # the coarse layer keeps its own resolution (TestLayerDimensions also checks its data file)
                 with Image.open(os.path.join(output_folder, scene["image_srcs"]["ST_coarse"])) as im:
                     self.assertEqual(im.size, COARSE_GRID_SIZE)
-                coarse_data = read_data_file(os.path.join(output_folder, scene["data_srcs"]["ST_coarse"]["url"]))
-                self.assertEqual(coarse_data.shape, COARSE_GRID_SIZE[::-1])
 
         # the elevation layer does not vary by case, so every case shares one image and one data file
         self.assertEqual(len({scene["image_srcs"]["Copernicus_DEM"] for scene in scenes["index"]}), 1)
@@ -467,14 +465,14 @@ class TestTimeseriesAggregation(unittest.TestCase):
                 rows = list(csv.DictReader(f))
         self.assertEqual(len(rows), CASE_COUNT)
 
-        # compare with the median of B2 over the CLOUD_MASK pixels, case by case in time order
+        # compare with the median of B2 over the EXTENDED_CLOUD_MASK pixels, case by case in time order
         ds = xr.open_dataset(INPUT_PATH).sortby("time")
         for (i, row) in enumerate(rows):
             case = ds.isel(time=i)
-            cloud_mask = np.logical_not(np.bitwise_and(case["QA_PIXEL"].data.astype(int), 8) == 0)
+            cloud_mask = np.logical_not(np.bitwise_and(case["QA_PIXEL"].data.astype(int), 30) == 0)
             expected = float(np.nanmedian(np.where(cloud_mask, case["B2"].data, np.nan)))
-            self.assertNotEqual(row["CLOUD_MASK_B2_median"], "", f"median is blank for {row['datetime']}")
-            self.assertAlmostEqual(float(row["CLOUD_MASK_B2_median"]), expected, places=5)
+            self.assertNotEqual(row["EXTENDED_CLOUD_MASK_B2_median"], "", f"median is blank for {row['datetime']}")
+            self.assertAlmostEqual(float(row["EXTENDED_CLOUD_MASK_B2_median"]), expected, places=5)
 
 
 class TestConfigErrors(unittest.TestCase):
@@ -563,17 +561,38 @@ class TestConfigErrors(unittest.TestCase):
     def test_config_is_not_modified(self):
         config = load_example_config()
         config["timeseries"]["ST_cloudy"]["variables"].append("NO_SUCH_VARIABLE")
-        config["timeseries"]["ST_cloudy"]["masks"].append("NO_SUCH_MASK")
         expected = copy.deepcopy(config)
         with tempfile.TemporaryDirectory() as tmp:
             gen = HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
                                 add_download_link=False, show_progress=False)
             gen.close()
         self.assertEqual(config, expected)
-        # the generator itself only keeps the variables and masks found in the input data
+        # the generator itself only keeps the variables found in the input data
         (_, spec, _) = gen.timeseries_definitions[0]
         self.assertEqual(spec["variables"], ["ST"])
-        self.assertEqual(spec["masks"], ["CLOUD_MASK", "EXTENDED_CLOUD_MASK"])
+        self.assertEqual(spec["masks"], ["EXTENDED_CLOUD_MASK"])
+
+    def test_unknown_timeseries_mask(self):
+        config = load_example_config()
+        config["timeseries"]["ST_cloudy"]["masks"].append("NO_SUCH_MASK")
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ConfigError) as cm:
+            HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
+                          add_download_link=False, show_progress=False)
+        self.assertIn("'ST_cloudy'", str(cm.exception))
+        self.assertIn("'NO_SUCH_MASK'", str(cm.exception))
+
+    def test_timeseries_mask_from_a_derived_band_that_fails_is_left_out(self):
+        config = load_example_config()
+        # BROKEN_MASK is in derive_bands, but cannot be evaluated, which is reported as a warning
+        config["derive_bands"]["BROKEN_MASK"] = "NO_SUCH_BAND > 1"
+        config["timeseries"]["ST_cloudy"]["masks"].append("BROKEN_MASK")
+        with tempfile.TemporaryDirectory() as tmp, self.assertLogs(level="WARNING") as logs:
+            gen = HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
+                                add_download_link=False, show_progress=False)
+            gen.close()
+        self.assertTrue(any("BROKEN_MASK" in message for message in logs.output), logs.output)
+        (_, spec, _) = gen.timeseries_definitions[0]
+        self.assertEqual(spec["masks"], ["EXTENDED_CLOUD_MASK"])
 
     def test_config_error_writes_no_output(self):
         config = load_example_config()
@@ -621,6 +640,12 @@ class TestGenerateHtmlConfigErrors(unittest.TestCase):
         config["derive_bands"]["ST_MAX"] = "max(ST)"
         result = self.run_with_config(yaml.dump(config))
         self.assertCleanError(result, "Error in config file", "'ST_MAX'", "unknown function 'max'")
+
+    def test_unknown_timeseries_mask(self):
+        config = load_example_config()
+        config["timeseries"]["ST_cloudy"]["masks"] = ["CLOUD_MASK"]
+        result = self.run_with_config(yaml.dump(config))
+        self.assertCleanError(result, "Error in config file", "'ST_cloudy'", "'CLOUD_MASK'", "derive_bands")
 
     def test_missing_case_dimension(self):
         config = load_example_config()

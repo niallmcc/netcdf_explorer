@@ -32,13 +32,12 @@ info:
 # operators bind in this order, most tightly first: unary - and not, then * /, then + -, then & |, then comparisons,
 # then and/or. Use parentheses to change the order.
 derive_bands:
-  CLOUD_MASK: "not (QA_PIXEL & 8 == 0)"
-  EXTENDED_CLOUD_MASK: "not (QA_PIXEL & 30 == 0)"
+  EXTENDED_CLOUD_MASK: not (QA_PIXEL & 30 == 0)
   DISCRETE_TEMP: IF(ST > 290, 3, IF(ST > 280, 2, 1))
 
 timeseries:
   ST_cloudy:
-    masks: ["CLOUD_MASK","EXTENDED_CLOUD_MASK"]
+    masks: ["EXTENDED_CLOUD_MASK"]
     variables: ["ST"]
 
 # specify the layers
@@ -68,18 +67,10 @@ layers:
 #
 # examples of each of the layer types are included below
   CLOUD_MASK:
-    label: "Basic Cloud Mask (8)"
-    type: "mask"
-    band: "CLOUD_MASK"
-    r: 200  # r,g,b specifies the colour to show when the pixel is included (transparent if not)
-    g: 200
-    b: 200
-
-  ALL_CLOUD_MASK:
-    label: "Extended Cloud Mask (30)"
-    type: "mask"
-    band: "EXTENDED_CLOUD_MASK"
-    r: 150
+    label: Cloud Mask
+    type: mask
+    band: EXTENDED_CLOUD_MASK
+    r: 150  # r,g,b specifies the colour to show when the pixel is included (transparent if not)
     g: 150
     b: 150
 
@@ -87,30 +78,27 @@ layers:
   # The group's first layer is shown initially. Each layer in the group is named <group name>_<layer name>,
   # so these two layers are ST_fine and ST_coarse.
   ST:
-    label: "Surface Temperature"
-    type: "layer_group"
+    label: Surface Temperature
+    type: layer_group
     layers:
       fine:
-        label: "Full resolution"
-        type: "single"
-        band: "ST" # use the ST variable in the input dataset
+        label: Full resolution
+        type: single
+        band: ST # use the ST variable in the input dataset
         min_value: 270 # specify the range of values to be depicted
         max_value: 300
-        cmap: "rainbow"  # specify a colour map, known to matplotlib (see https://matplotlib.org/stable/users/explain/colors/colormaps.html)
+        cmap: rainbow  # specify a colour map, known to matplotlib (see https://matplotlib.org/stable/users/explain/colors/colormaps.html)
         data:
           label: "B10_ST: {value} K"
           fixed: 2
 
       coarse:
-        label: "Coarse (4x4 pixel means)"
-        type: "single"
-        band: "ST_coarse" # use the ST_coarse variable in the input dataset
+        label: Coarse (4x4 pixel means)
+        type: single
+        band: ST_coarse # use the ST_coarse variable in the input dataset
         min_value: 270
         max_value: 300
-        cmap: "rainbow"
-        data:
-          label: "B10_ST: {value} K"
-          fixed: 2
+        cmap: rainbow
         dimensions:
           x: ni2
           y: nj2
@@ -119,20 +107,20 @@ layers:
           y: lat_coarse
 
   DISCRETE_ST:
-    label: "Surface Temperature Discrete"
-    type: "discrete"
-    band: "DISCRETE_TEMP"
+    label: Surface Temperature Discrete
+    type: discrete
+    band: DISCRETE_TEMP
     values:
       1: ["low","blue"]
       2: ["medium","purple"]
       3: ["high","red"]
 
   REF:
-    label: "Reflectance"
-    type: "rgb"
-    red_band: "B4"      # variable to use to provide red intensity
-    green_band: "B3"    # variable to use to provide green intensity
-    blue_band: "B2"     # variable to use to provide blue intensity
+    label: Reflectance
+    type: rgb
+    red_band: B4      # variable to use to provide red intensity
+    green_band: B3    # variable to use to provide green intensity
+    blue_band: B2     # variable to use to provide blue intensity
     red_gamma: 0.5      # gamma correction - boost reds (smaller values increase boost)
     green_gamma: 0.5    # gamma correction - boost greens (smaller values increase boost)
     blue_gamma: 0.5     # gamma correction - boost blues (smaller values increase boost)
@@ -143,8 +131,8 @@ layers:
     # high_percentile: 98 # apply linear normalisation with the maximum value computed from this percentile
 
   OSM:
-    label: "Open Street Map"
-    type: "wms"
+    label: Open Street Map
+    type: wms
     scale: 1  # increase this to request a larger, more detailed WMS image
       # specify a WMS provider URL that should include placeholders {WIDTH}, {HEIGHT}, {XMIN}, {YMIN}, {XMAX}, {YMAX}
       # note that the URL should specify the correct CRS for the projection used in the variable's x and y coordinates
@@ -154,11 +142,11 @@ layers:
     type: single
     band: Copernicus_DEM
     min_value: 0
-    max_value: 600
+    max_value: 1200
     cmap: Greys
     data:
-      "label": "Elevation: {value} m"
-      "fixed": 0
+      label: "Elevation: {value} m"
+      fixed: 0
 
 terrain_view:
   based_on_layer: Copernicus_DEM
