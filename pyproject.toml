@@ -1,6 +1,58 @@
-
 [build-system]
-requires = [
-    "setuptools>=42",
-]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "netcdf_explorer"
+version = "0.4.0"
+description = "Tools for exploring gridded spatiotemporal data stored in netcdf4 files"
+readme = "README.md"
+authors = [
+    { name = "Niall McCarroll / University of Reading", email = "n.f.mccarroll@reading.ac.uk" },
+]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy>=2.0",
+    "pillow",
+    "netcdf4",
+    "xarray",
+    "matplotlib",
+    "requests",
+    "datashader",
+    "pyproj",
+    "mako",
+    "pyyaml",
+]
+
+[project.urls]
+Homepage = "https://github.com/surftemp/netcdf_explorer"
+"Bug Tracker" = "https://github.com/surftemp/netcdf_explorer/issues"
+
+[project.scripts]
+generate_html = "netcdf_explorer.cli.generate_html:main"
+bigplot = "netcdf_explorer.cli.bigplot:main"
+thumbnail = "netcdf_explorer.cli.thumbnail:main"
+
+[tool.setuptools]
+# the javascript, css, font and colour map files listed in MANIFEST.in are installed with the package
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+# only folders with an __init__.py are packages, so the scripts in src/netcdf_explorer/misc are not installed
+namespaces = false
+
+# run the linter from the repository root with: ruff check
+[tool.ruff]
+line-length = 120
+src = ["src", "test/netcdf_explorer_tests"]
+
+[tool.ruff.lint]
+# pycodestyle errors (E) and warnings (W), and pyflakes (F)
+select = ["E", "W", "F"]
