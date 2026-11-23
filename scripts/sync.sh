@@ -13,7 +13,6 @@ then
 else
   rsync -avr $rootfolder/src $username@$hostname:$destfolder/netcdf_explorer
   rsync -avr $rootfolder/pyproject.toml $username@$hostname:$destfolder/netcdf_explorer
-  rsync -avr $rootfolder/setup.cfg $username@$hostname:$destfolder/netcdf_explorer
   rsync -avr $rootfolder/MANIFEST.in $username@$hostname:$destfolder/netcdf_explorer
 fi
 
