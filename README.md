@@ -32,15 +32,15 @@ pip install git+https://github.com/surftemp/netcdf_explorer.git
 Use `generate_html` to create a static HTML file and images from a netcdf4 file
 
 ```
-wget https://github.com/niallmcc/netcdf_explorer/raw/main/test/netcdf_explorer_tests/area_293_min.nc
+wget https://github.com/niallmcc/netcdf_explorer/raw/main/test/netcdf_explorer_tests/greenland.nc
 wget https://github.com/niallmcc/netcdf_explorer/raw/main/test/netcdf_explorer_tests/example_layers.yaml
-generate_html --input-path area_293_min.nc --title "area_293" --output-folder output_folder_with_html --config-path example_layers.yaml
+generate_html --input-path greenland.nc --title "greenland" --output-folder output_folder_with_html --config-path example_layers.yaml
 ```
 
 This will:
 
-* read a dataset from file `area_293_min.nc`
-* create HTML output with layers defined in the file `example_layers.yaml` (see below) entitled "Test output for netcdf2html"
+* read a dataset from file `greenland.nc`
+* create HTML output with layers defined in the file `example_layers.yaml` (see below) entitled "greenland"
 * note - configuration files must be supplied in yaml format (.yml or .yaml)
 * write the generated output html, image files and other associated files to folder `output_folder_with_html`
 

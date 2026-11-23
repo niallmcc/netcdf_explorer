@@ -153,7 +153,22 @@ class HTMLGenerator:
 
         self.read_config(config)
 
-        self.input_ds = self.select_cases(xr.open_dataset(input_path), sample_count, sample_cases)
+        # the input file stays open until run() finishes or close() is called. It must be closed: xarray shares
+        # one netCDF file handle between opens of the same file, and a handle left open can crash a later open
+        self.source_ds = xr.open_dataset(input_path)
+        try:
+            self.read_input(config, sample_count, sample_cases)
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self):
+        """Close the input file."""
+        self.source_ds.close()
+
+    def read_input(self, config, sample_count, sample_cases):
+        """Read the cases, derived bands, layers and timeseries from the input file, checking the configuration."""
+        self.input_ds = self.select_cases(self.source_ds, sample_count, sample_cases)
         self.data_width = self.input_ds.sizes[self.x_dimension] if self.x_dimension else None
         self.data_height = self.input_ds.sizes[self.y_dimension] if self.y_dimension else None
 
@@ -177,7 +192,7 @@ class HTMLGenerator:
                                  if filename.endswith(".json")], key=lambda v:v.lower())
 
         if self.terrain_view:
-            self.check_terrain_spec(self.terrain_view)
+            self.terrain_view = self.check_terrain_spec(self.terrain_view)
 
     def read_config(self, config):
         """Read the top-level settings from the configuration."""
@@ -337,10 +352,25 @@ class HTMLGenerator:
         return flattened_layers
 
     def check_terrain_spec(self, terrain_view):
-        if "elevation_band" not in terrain_view and "based_on_layer" not in terrain_view:
+        """Raise ConfigError if the terrain view is not based on a layer that saves its data.
+
+        Returns the settings passed to the page: the name of the elevation layer and the pixel size
+        in elevation units. The layer can be given as based_on_layer or, in older configurations, elevation_band.
+        """
+        elevation_layer = terrain_view.get("based_on_layer", terrain_view.get("elevation_band"))
+        if elevation_layer is None:
             raise ConfigError("terrain_view should contain based_on_layer key")
+        layer = next((layer for layer in self.flatten_layers(self.layer_definitions)
+                      if layer.layer_name == elevation_layer), None)
+        if layer is None:
+            raise ConfigError(f"terrain_view is based on layer '{elevation_layer}', which is not in the layers section")
+        if not layer.save_data():
+            raise ConfigError(f"terrain_view is based on layer '{elevation_layer}', which needs a 'data' setting "
+                              "so that its values are saved for the page")
         if "pixel_size_in_elevation_units" not in terrain_view:
             self.logger.warning("terrain_view should contain pixel_size_in_elevation_units key")
+        return {"elevation_layer": elevation_layer,
+                "pixel_size_in_elevation_units": terrain_view.get("pixel_size_in_elevation_units")}
 
     @staticmethod
     def check_timeseries_spec(timeseries_name, timeseries_spec):
@@ -509,7 +539,13 @@ class HTMLGenerator:
         return d
 
     def run(self):
-        """Write the HTML page, images, data and timeseries files to the output folder."""
+        """Write the HTML page, images, data and timeseries files to the output folder, then close the input file."""
+        try:
+            self.write_output()
+        finally:
+            self.close()
+
+    def write_output(self):
         self.write_static_files()
 
         image_width = None
@@ -568,6 +604,12 @@ class HTMLGenerator:
 
         for layer_definition in remove_layers:
             self.layer_definitions.remove(layer_definition)
+
+        if self.terrain_view:
+            elevation_layer = self.terrain_view["elevation_layer"]
+            if elevation_layer not in [layer.layer_name for layer in self.flatten_layers(self.layer_definitions)]:
+                self.logger.warning(f"Unable to add terrain view: its layer {elevation_layer} could not be added")
+                self.terrain_view = {}
 
     def build_legends(self):
         for layer_definition in self.flatten_layers(self.layer_definitions):

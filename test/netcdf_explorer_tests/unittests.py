@@ -21,17 +21,20 @@ from netcdf_explorer.api.html_generator import HTMLGenerator
 from netcdf_explorer.api.layers import LayerFactory
 
 TEST_FOLDER = os.path.dirname(os.path.abspath(__file__))
-INPUT_PATH = os.path.join(TEST_FOLDER, "area_293_min.nc")
+INPUT_PATH = os.path.join(TEST_FOLDER, "greenland.nc")
 CONFIG_PATH = os.path.join(TEST_FOLDER, "example_layers.yaml")
 
-# the test dataset has 3 cases (time steps) on a 401 x 401 grid
-CASE_COUNT = 3
-GRID_SIZE = (401, 401)
+# the test dataset has 12 cases (time steps) on a grid 320 wide and 256 high (dimensions ni and nj).
+# ST_coarse is surface temperature on a grid 4 times coarser (dimensions ni2 and nj2), covering the same area,
+# and Copernicus_DEM is an elevation model that does not vary from case to case.
+CASE_COUNT = 12
+GRID_SIZE = (320, 256)
+COARSE_GRID_SIZE = (80, 64)
 
-# layers in example_layers.yaml built from the input data (one image per case).
-# CLOUD_MASK and ALL_CLOUD_MASK come from derive_bands, so they also check expression evaluation.
+# layers in example_layers.yaml built from the input data at full resolution (one image per case).
+# CLOUD_MASK, ALL_CLOUD_MASK and DISCRETE_ST use bands from derive_bands, so they also check expression evaluation.
 # The OSM layer is left out because it is fetched over the network from a WMS server.
-CASE_LAYERS = ["CLOUD_MASK", "ALL_CLOUD_MASK", "ST", "REF"]
+CASE_LAYERS = ["CLOUD_MASK", "ALL_CLOUD_MASK", "ST", "DISCRETE_ST", "REF"]
 
 BIGPLOT_BORDER = 20  # default border, in pixels, on each side of a bigplot image
 
@@ -62,6 +65,14 @@ def load_example_config():
 # a stand-in for HTMLGenerator, providing the attributes LayerFactory reads from it
 STUB_CONVERTER = types.SimpleNamespace(case_dimension="time", x_dimension="x", y_dimension="y",
                                        time_coordinate="time", x_coordinate="x", y_coordinate="y")
+
+
+def read_data_file(path):
+    """Read a data file written by DataEncoder: an int32 height and width, then the values as float32."""
+    with open(path, "rb") as f:
+        content = gzip.decompress(f.read())
+    (height, width) = np.frombuffer(content[:8], dtype="<i4")
+    return np.frombuffer(content[8:], dtype="<f4").reshape(height, width)
 
 
 class Test(unittest.TestCase):
@@ -96,6 +107,17 @@ class Test(unittest.TestCase):
                 self.assertTrue(os.path.isfile(image_path), f"missing {image_path}")
                 with Image.open(image_path) as im:
                     self.assertEqual(im.size, GRID_SIZE, f"unexpected size for {image_path}")
+                # the coarse layer keeps its own resolution, in its image and its data file
+                with Image.open(os.path.join(output_folder, scene["image_srcs"]["ST_coarse"])) as im:
+                    self.assertEqual(im.size, COARSE_GRID_SIZE)
+                coarse_data = read_data_file(os.path.join(output_folder, scene["data_srcs"]["ST_coarse"]["url"]))
+                self.assertEqual(coarse_data.shape, COARSE_GRID_SIZE[::-1])
+
+        # the elevation layer does not vary by case, so every case shares one image and one data file
+        self.assertEqual(len({scene["image_srcs"]["Copernicus_DEM"] for scene in scenes["index"]}), 1)
+        self.assertEqual(len({scene["data_srcs"]["Copernicus_DEM"]["url"] for scene in scenes["index"]}), 1)
+        self.assertEqual(scenes["terrain_view"],
+                         {"elevation_layer": "Copernicus_DEM", "pixel_size_in_elevation_units": 50})
 
         download_path = os.path.join(output_folder, os.path.basename(INPUT_PATH))
         self.assertEqual(os.path.exists(download_path), expect_download_link)
@@ -105,28 +127,29 @@ class Test(unittest.TestCase):
         with Image.open(path) as im:
             width, height = im.size
         self.assertEqual(width, plot_width + 2 * BIGPLOT_BORDER)
-        self.assertGreaterEqual(height, plot_width)
+        # the plot keeps the grid's shape, with a title and legend added below or above it
+        self.assertGreaterEqual(height, plot_width * GRID_SIZE[1] / GRID_SIZE[0])
 
-    def test_293_api(self):
-        output_folder = os.path.join(self.output_dir, "area_293_output_api")
+    def test_api(self):
+        output_folder = os.path.join(self.output_dir, "output_api")
         with open(CONFIG_PATH) as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
-        gen = HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=output_folder, title="area 293",
+        gen = HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=output_folder, title="greenland",
                             add_download_link=True, filter_controls=True)
         gen.run()
         self.check_html_output(output_folder, expect_download_link=True)
 
-    def test_293_commandline(self):
-        output_folder = os.path.join(self.output_dir, "area_293_output_cli")
+    def test_commandline(self):
+        output_folder = os.path.join(self.output_dir, "output_cli")
         run_cli("netcdf_explorer.cli.generate_html",
-                ["--input-path", INPUT_PATH, "--title", "area_293", "--output-folder", output_folder,
+                ["--input-path", INPUT_PATH, "--title", "greenland", "--output-folder", output_folder,
                  "--config-path", CONFIG_PATH, "--download-data"], cwd=self.output_dir)
         self.check_html_output(output_folder, expect_download_link=True)
 
-    def test_293_commandline_sample_cases(self):
-        output_folder = os.path.join(self.output_dir, "area_293_output_sampled")
+    def test_commandline_sample_cases(self):
+        output_folder = os.path.join(self.output_dir, "output_sampled")
         run_cli("netcdf_explorer.cli.generate_html",
-                ["--input-path", INPUT_PATH, "--title", "area_293", "--output-folder", output_folder,
+                ["--input-path", INPUT_PATH, "--title", "greenland", "--output-folder", output_folder,
                  "--config-path", CONFIG_PATH, "--sample-cases", "2", "0"], cwd=self.output_dir)
         with open(os.path.join(output_folder, "scenes.json")) as f:
             scenes = json.load(f)
@@ -143,27 +166,27 @@ class Test(unittest.TestCase):
         self.assertEqual(csv_timestamps, timestamps)
 
     def test_bigplot(self):
-        output_path = os.path.join(self.output_dir, "area_293_min.png")
+        output_path = os.path.join(self.output_dir, "greenland.png")
         ds = xr.open_dataset(INPUT_PATH).isel(time=1)
         da = xr.concat([ds["B2"], ds["B3"], ds["B4"]], dim="band")
-        bp = netcdf_explorer.api.bigplot.BigPlot(da, x="x", y="y", vmin=0, vmax=1, legend_height=0,
+        bp = netcdf_explorer.api.bigplot.BigPlot(da, x="ni", y="nj", vmin=0, vmax=1, legend_height=0,
                                                  output_path=output_path, plot_width=1024)
         bp.run()
         self.check_bigplot_image(output_path, plot_width=1024)
 
     def test_bigplot_commandline(self):
-        output_path = os.path.join(self.output_dir, "area_293_min_cmdline.png")
+        output_path = os.path.join(self.output_dir, "greenland_cmdline.png")
         run_cli("netcdf_explorer.cli.bigplot",
                 ["--input-path", INPUT_PATH, "--iselector", "time", "1", "1", "--input-variable", "B2", "B3", "B4",
-                 "--output-path", output_path, "--title", "area_293_min", "--vmin", "0", "--vmax", "0.3",
+                 "--x", "ni", "--y", "nj", "--output-path", output_path, "--title", "greenland", "--vmin", "0", "--vmax", "0.3",
                  "--plot-width", "512"], cwd=self.output_dir)
         self.check_bigplot_image(output_path, plot_width=512)
 
     def test_bigplot_commandline_st(self):
-        output_path = os.path.join(self.output_dir, "area_293_min_cmdline_st.png")
+        output_path = os.path.join(self.output_dir, "greenland_cmdline_st.png")
         run_cli("netcdf_explorer.cli.bigplot",
                 ["--input-path", INPUT_PATH, "--iselector", "time", "1", "1", "--input-variable", "ST",
-                 "--output-path", output_path, "--title", "area_293_min_st", "--vmin", "270", "--vmax", "330",
+                 "--x", "ni", "--y", "nj", "--output-path", output_path, "--title", "greenland_st", "--vmin", "270", "--vmax", "330",
                  "--cmap", "viridis", "--plot-width", "512"], cwd=self.output_dir)
         self.check_bigplot_image(output_path, plot_width=512)
 
@@ -270,30 +293,28 @@ class TestDerivedBandExpressions(unittest.TestCase):
 class TestLayerDimensions(unittest.TestCase):
 
     def test_layer_with_own_x_and_y_dimension_names(self):
-        # add variables whose dimensions are named xx and yy rather than x and y:
+        # add variables whose dimensions are named xx and yy rather than ni and nj:
         # a 1-D profile along xx, and a 2-D field stored as (xx, yy), transposed relative to the other variables
         ds = xr.open_dataset(INPUT_PATH)
-        width = ds.sizes["x"]
-        ds["XPROFILE"] = xr.DataArray(np.linspace(0, 1, width), dims=("xx",))
-        ds["ST_T"] = xr.DataArray(ds["ST"].isel(time=0).data.T, dims=("xx", "yy"))
+        st = ds["ST"].isel(time=0).data
+        ds["XPROFILE"] = xr.DataArray(np.linspace(0, 1, ds.sizes["ni"]), dims=("xx",))
+        ds["ST_T"] = xr.DataArray(st.T, dims=("xx", "yy"))
         # the same field stored upside down and back to front, with its own (reversed) coordinates
-        ds = ds.assign_coords(x_rev=("xr", ds["x"].data[::-1]), y_rev=("yr", ds["y"].data[::-1]))
-        ds["ST_R"] = xr.DataArray(ds["ST"].isel(time=0).data[::-1, ::-1], dims=("yr", "xr"))
-        # a half-resolution version of the field covering the same area, averaging 2x2 blocks of pixels
-        half = ds["ST"].isel(time=0, x=slice(0, 400), y=slice(0, 400)).coarsen(x=2, y=2).mean()
-        ds = ds.assign_coords(x_half=("xh", half["x"].data), y_half=("yh", half["y"].data))
-        ds["ST_HALF"] = xr.DataArray(half.data, dims=("yh", "xh"))
+        ds["lon_rev"] = xr.DataArray(ds["lon"].data[::-1], dims=("xr",))
+        ds["lat_rev"] = xr.DataArray(ds["lat"].data[::-1], dims=("yr",))
+        ds["ST_R"] = xr.DataArray(st[::-1, ::-1], dims=("yr", "xr"))
         layers = {
             "ST": {"type": "single", "min_value": 270, "max_value": 300},
             "XPROFILE": {"type": "single", "min_value": 0, "max_value": 1, "dimensions": {"x": "xx"}},
             "ST_T": {"type": "single", "min_value": 270, "max_value": 300, "dimensions": {"x": "xx", "y": "yy"}},
             "ST_R": {"type": "single", "min_value": 270, "max_value": 300, "dimensions": {"x": "xr", "y": "yr"},
-                     "coordinates": {"x": "x_rev", "y": "y_rev"}},
-            "ST_HALF": {"type": "single", "min_value": 270, "max_value": 300, "data": {"label": "{value} K"},
-                        "dimensions": {"x": "xh", "y": "yh"}, "coordinates": {"x": "x_half", "y": "y_half"}},
+                     "coordinates": {"x": "lon_rev", "y": "lat_rev"}},
+            # ST_coarse in the input data is ST averaged over 4x4 blocks of pixels, covering the same area
+            "ST_coarse": {"type": "single", "min_value": 270, "max_value": 300, "data": {"label": "{value} K"},
+                          "dimensions": {"x": "ni2", "y": "nj2"}, "coordinates": {"x": "lon_coarse", "y": "lat_coarse"}},
         }
-        config = {"dimensions": {"case": "time", "x": "x", "y": "y"},
-                  "coordinates": {"x": "x", "y": "y", "time": "time"}, "layers": layers}
+        config = {"dimensions": {"case": "time", "x": "ni", "y": "nj"},
+                  "coordinates": {"x": "lon", "y": "lat", "time": "time"}, "layers": layers}
         with tempfile.TemporaryDirectory() as tmp:
             input_path = os.path.join(tmp, "input.nc")
             ds.to_netcdf(input_path)
@@ -305,14 +326,12 @@ class TestLayerDimensions(unittest.TestCase):
             self.assertEqual(sorted(layer["name"] for layer in scenes["layers"]), sorted(layers))
             first_case = next(scene for scene in scenes["index"] if scene["pos"] == 0)
             images = {}
-            for name in ["XPROFILE", "ST_T", "ST_R", "ST_HALF", "ST"]:
+            for name in layers:
                 with Image.open(os.path.join(output_folder, first_case["image_srcs"][name])) as im:
                     images[name] = np.array(im)
-            # the half-resolution layer's data file is also written at its own resolution
-            with open(os.path.join(output_folder, first_case["data_srcs"]["ST_HALF"]["url"]), "rb") as f:
-                (half_height, half_width) = np.frombuffer(gzip.decompress(f.read())[:8], dtype="<i4")
+            coarse_data = read_data_file(os.path.join(output_folder, first_case["data_srcs"]["ST_coarse"]["url"]))
 
-        self.assertEqual(images["XPROFILE"].shape[:2], (GRID_SIZE[1], GRID_SIZE[0]))
+        self.assertEqual(images["XPROFILE"].shape[:2], GRID_SIZE[::-1])
         # a profile along x gives an image whose rows are all the same
         self.assertTrue((images["XPROFILE"] == images["XPROFILE"][0]).all())
         # the transposed field gives the same image as the original field for that case
@@ -321,14 +340,90 @@ class TestLayerDimensions(unittest.TestCase):
         self.assertTrue((images["ST_R"] == images["ST"]).all())
         # a layer with a different resolution keeps its own resolution, and the same orientation as the others:
         # its pixels match the full-resolution image's pixels at the same positions (allowing for averaging)
-        self.assertEqual(images["ST_HALF"].shape[:2], (200, 200))
-        self.assertEqual((half_width, half_height), (200, 200))
-        # (the mean colour difference is about 2.5 the right way up, and over 35 for any flip)
-        half_image = images["ST_HALF"][:, :, :3].astype(int)
-        full_sampled = images["ST"][1:400:2, 1:400:2, :3].astype(int)
-        self.assertLess(np.abs(half_image - full_sampled).mean(), 10)
+        self.assertEqual(images["ST_coarse"].shape[:2], COARSE_GRID_SIZE[::-1])
+        np.testing.assert_allclose(coarse_data, ds["ST_coarse"].isel(time=0).data.astype("float32"))
+        # (the mean colour difference is about 7 the right way up, and over 60 for any flip)
+        coarse_image = images["ST_coarse"][:, :, :3].astype(int)
+        full_sampled = images["ST"][2::4, 2::4, :3].astype(int)
+        self.assertLess(np.abs(coarse_image - full_sampled).mean(), 20)
         for flipped in [full_sampled[::-1], full_sampled[:, ::-1], full_sampled[::-1, ::-1]]:
-            self.assertGreater(np.abs(half_image - flipped).mean(), 30)
+            self.assertGreater(np.abs(coarse_image - flipped).mean(), 40)
+
+    def test_band_without_the_layer_dimensions_is_skipped(self):
+        config = load_example_config()
+        # ST is on the full resolution grid, not the coarse grid this layer is set up for
+        config["layers"]["ST_coarse"]["band"] = "ST"
+        del config["layers"]["OSM"]
+        with tempfile.TemporaryDirectory() as tmp, self.assertLogs(level="WARNING") as logs:
+            HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
+                          add_download_link=False, show_progress=False).run()
+            with open(os.path.join(tmp, "scenes.json")) as f:
+                layer_names = [layer["name"] for layer in json.load(f)["layers"]]
+        self.assertNotIn("ST_coarse", layer_names)
+        self.assertIn("ST", layer_names)
+        self.assertTrue(any("ST_coarse" in message and "(time, nj, ni)" in message and "ni2" in message
+                            for message in logs.output), logs.output)
+
+
+class TestTerrainView(unittest.TestCase):
+
+    def make_config(self, terrain_view, dem_layer=None):
+        dem_layer = dem_layer if dem_layer is not None else {
+            "type": "single", "band": "Copernicus_DEM", "min_value": 0, "max_value": 600, "data": {"label": "{value} m"}}
+        return {"dimensions": {"case": "time", "x": "ni", "y": "nj"},
+                "coordinates": {"x": "lon", "y": "lat", "time": "time"},
+                "layers": {"ST": {"type": "single", "min_value": 270, "max_value": 300}, "DEM": dem_layer},
+                "terrain_view": terrain_view}
+
+    def generate(self, config, output_folder):
+        HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=output_folder, title="t",
+                      add_download_link=False, show_progress=False).run()
+        with open(os.path.join(output_folder, "scenes.json")) as f:
+            return json.load(f)
+
+    def test_elevation_data_is_written_for_the_page(self):
+        for terrain_view in [{"based_on_layer": "DEM", "pixel_size_in_elevation_units": 30},
+                             {"elevation_band": "DEM", "pixel_size_in_elevation_units": 30}]:
+            with self.subTest(terrain_view=terrain_view), tempfile.TemporaryDirectory() as tmp:
+                scenes = self.generate(self.make_config(terrain_view), tmp)
+                # the page is given the same settings, whichever name the configuration used for the layer
+                self.assertEqual(scenes["terrain_view"],
+                                 {"elevation_layer": "DEM", "pixel_size_in_elevation_units": 30})
+                with open(os.path.join(tmp, "index.html")) as f:
+                    html = f.read()
+                self.assertIn('id="terrain_view_btn"', html)
+                self.assertIn("dependencies/babylon.js", html)
+                elevation = read_data_file(os.path.join(tmp, scenes["index"][0]["data_srcs"]["DEM"]["url"]))
+        dem = xr.open_dataset(INPUT_PATH)["Copernicus_DEM"].data.astype("float32")
+        np.testing.assert_array_equal(elevation, dem)
+
+    def test_terrain_view_config_errors(self):
+        cases = [
+            (self.make_config({"pixel_size_in_elevation_units": 30}), "based_on_layer"),
+            (self.make_config({"based_on_layer": "DEMX"}), "'DEMX'"),
+            (self.make_config({"based_on_layer": "DEM"},
+                              dem_layer={"type": "single", "band": "Copernicus_DEM", "min_value": 0, "max_value": 600}),
+             "'data'"),
+        ]
+        for (config, expected_fragment) in cases:
+            with self.subTest(terrain_view=config["terrain_view"]), tempfile.TemporaryDirectory() as tmp, \
+                    self.assertRaises(ConfigError) as cm:
+                HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
+                              add_download_link=False, show_progress=False)
+            self.assertIn("terrain_view", str(cm.exception))
+            self.assertIn(expected_fragment, str(cm.exception))
+
+    def test_terrain_view_is_left_out_if_its_layer_cannot_be_added(self):
+        config = self.make_config({"based_on_layer": "DEM"}, dem_layer={
+            "type": "single", "band": "NO_SUCH_BAND", "min_value": 0, "max_value": 600, "data": {"label": "{value}"}})
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertLogs(level="WARNING") as logs:
+                scenes = self.generate(config, tmp)
+            with open(os.path.join(tmp, "index.html")) as f:
+                html = f.read()
+        self.assertNotIn("terrain_view", scenes)
+        self.assertNotIn('id="terrain_view_btn"', html)
+        self.assertTrue(any("terrain view" in message for message in logs.output), logs.output)
 
 
 class TestTimeseriesAggregation(unittest.TestCase):
@@ -460,6 +555,7 @@ class TestConfigErrors(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             gen = HTMLGenerator(config=config, input_path=INPUT_PATH, output_folder=tmp, title="t",
                                 add_download_link=False, show_progress=False)
+            gen.close()
         self.assertEqual(config, expected)
         # the generator itself only keeps the variables and masks found in the input data
         (_, spec, _) = gen.timeseries_definitions[0]
