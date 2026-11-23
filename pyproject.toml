@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netcdf_explorer"
-version = "0.4.0"
+version = "0.5.0"
 description = "Tools for exploring gridded spatiotemporal data stored in netcdf4 files"
 readme = "README.md"
 authors = [
@@ -31,8 +31,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/surftemp/netcdf_explorer"
-"Bug Tracker" = "https://github.com/surftemp/netcdf_explorer/issues"
+Homepage = "https://github.com/niallmcc/netcdf_explorer"
+"Bug Tracker" = "https://github.com/niallmcc/netcdf_explorer/issues"
 
 [project.scripts]
 generate_html = "netcdf_explorer.cli.generate_html:main"
