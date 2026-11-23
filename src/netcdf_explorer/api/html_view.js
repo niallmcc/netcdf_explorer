@@ -197,205 +197,6 @@ class HtmlView {
         });
     }
 
-    /**
-     * Provide a standard string representation of dates
-     *
-     * @param {Date} dt a javascript date
-     *
-     * @returns {string} in format YYYY-MM-DD
-     */
-    date_to_string(dt) {
-        // return YYY-MM-DD formatted string from Date
-        let day = dt.getUTCDate();
-        let month = dt.getUTCMonth() + 1;
-        let year = dt.getFullYear();
-        let s = String(year) + "-" + String(month).padStart(2, '0') + "-" + String(day).padStart(2, '0');
-        return s;
-    }
-
-    /**
-     * Parse a string
-     *
-     * @param s a string in format YYYY-MM-DD
-     *
-     * @returns {Date} a javascript Date object parsed from the string
-     */
-    string_to_date(s) {
-        // parse YYYY-MM-DD formatted string to Date
-        let day = Number.parseInt(s.slice(8, 10));
-        let month = Number.parseInt(s.slice(5, 7));
-        let year = Number.parseInt(s.slice(0, 4));
-        return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-    }
-
-    select_grid_date(updated_date) {
-        let min_diff = null;
-        let min_index = null;
-        let updated_dt = this.string_to_date(updated_date);
-        for (let idx = 0; idx < this.scenes.index.length; idx++) {
-            let item = this.scenes.index[idx];
-            let item_dt = this.string_to_date(item.timestamp);
-            let diff = Math.abs(item_dt - updated_dt);
-            if (min_diff === null || diff < min_diff) {
-                min_diff = diff;
-                min_index = idx;
-            }
-        }
-        if (min_index !== null) {
-            this.select_grid_index(min_index);
-        }
-    }
-
-    select_grid_index(new_index) {
-        let pos = this.scenes.index[new_index].pos;
-        let row_id = `row${pos}`;
-        let previous_current_page = this.current_page;
-        this.current_page = 0;
-        while(new_index >= (this.current_page*this.page_size + this.page_size)) {
-            this.current_page += 1;
-        }
-        if (this.current_page !== previous_current_page) {
-            this.show_page();
-        }
-        let row_elt = document.getElementById(row_id);
-        if (row_elt) {
-            row_elt.scrollIntoView();
-        }
-    }
-
-    select_overlay_date(updated_date) {
-        let min_diff = null;
-        let min_index = null;
-        let updated_dt = this.string_to_date(updated_date);
-        for (let idx = 0; idx < this.index.length; idx++) {
-            let item = this.index[idx];
-            let item_dt = this.string_to_date(item.timestamp);
-            let diff = Math.abs(item_dt - updated_dt);
-            if (min_diff === null || diff < min_diff) {
-                min_diff = diff;
-                min_index = item.pos;
-            }
-        }
-        if (min_index !== null) {
-            this.current_index = min_index;
-            this.update_time_range();
-            this.show().then(() => {});
-        }
-    }
-
-    prev_page() {
-        if (this.current_page > 0) {
-            this.current_page -= 1;
-            this.show_page();
-        }
-    }
-
-    next_page() {
-        if (this.current_page < this.max_page) {
-            this.current_page += 1;
-            this.show_page();
-        }
-    }
-
-    show_page() {
-        let page_start = this.current_page * this.page_size;
-        let page_end = ((this.current_page+1) * this.page_size)-1;
-        for(let idx=0; idx < this.scenes.index.length; idx++) {
-            let row = document.getElementById(`row${idx}`);
-            if (idx >= page_start && idx <= page_end) {
-                row.style.display = 'table-row';
-            } else {
-                row.style.display = 'none';
-            }
-        }
-        this.page_label.innerText = `(${this.current_page+1}/${this.max_page+1})`;
-        this.update_page_range();
-    }
-
-    update_page_size() {
-        this.page_size = Number.parseInt(this.page_size_control.value);
-        this.calculate_max_page();
-    }
-
-    update_page_range() {
-        if (this.max_page == 0) {
-            this.page_range.value = "50";
-        } else {
-            this.page_range.value = String(100 * (this.current_page / this.max_page));
-        }
-    }
-
-    calculate_max_page() {
-        let nr_scenes = this.scenes.index.length;
-        this.max_page = Math.ceil(nr_scenes/this.page_size)-1;
-        if (this.current_page > this.max_page) {
-            this.current_page = this.max_page;
-            this.show_page();
-        }
-    }
-
-    cache_image(image_id, image_url) {
-        this.image_url_cache[image_id] = image_url;
-        this.cached_image_ids.push(image_id);
-        if (this.cached_image_ids.length > this.image_url_cache_size) {
-            delete this.image_url_cache[this.cached_image_ids.splice(0,1)];
-        }
-    }
-
-    intersection_callback(entries) {
-        entries.forEach((entry) => {
-            let target = entry.target;
-            if (target.hasAttribute("load_url")) {
-                if (entry.isIntersecting) {
-                    // image is now visible
-                    if (target.hasAttribute("load_url")) {
-                        let url = target.getAttribute("src");
-                        if (url === "") {
-                            let img_id = target.id;
-                            if (img_id in this.image_url_cache) {
-                                target.setAttribute("src",this.image_url_cache[img_id]);
-                            } else {
-                                this.image_fetcher.submit(img_id);
-                            }
-                        }
-                    }
-                } else {
-                    // image is no longer visible
-                    target.src = "";
-                }
-            }
-        });
-    }
-
-    handle_map_mouseover(y_frac, x_frac) {
-        let data_content = document.getElementById("data_content");
-        if (data_content) {
-            let html = "<p>No Data</p>";
-            if (this.di && y_frac !== null && x_frac !== null) {
-                html = this.di.get_popup_html(y_frac, x_frac)
-            }
-            data_content.innerHTML = html;
-        }
-    }
-
-    async load_timeseries() {
-        if (this.timeseries_charts === null) {
-            this.timeseries_charts = {};
-            let r = await fetch("timeseries.json");
-            let timeseries = await r.json();
-            if (timeseries) {
-                timeseries.forEach(o => {
-                    let name = o["name"];
-                    let csv_url = o["csv_url"];
-                    let spec = o["spec"];
-                    let div_id = o["div_id"];
-                    let chart = new TimeseriesChart(div_id, csv_url, spec);
-                    this.timeseries_charts[name] = chart;
-                });
-            }
-        }
-    }
-
     async load() {
         // load data files: scenes.json a
         // this needs to be called before init
@@ -429,41 +230,6 @@ class HtmlView {
         }
 
         this.calculate_max_page();
-    }
-
-    create_custom_cmap_callback(layer_name, select_control, min_control, max_control) {
-        // create a callback to be called when a cmap is changed in the overlay view
-        let cb = async (evt) => {
-            let new_min = Number.parseFloat(min_control.value);
-            let new_max = Number.parseFloat(max_control.value);
-            let new_cmap = select_control.value;
-            this.data_layers[layer_name] = {"cmap": new_cmap, "vmin": new_min, "vmax": new_max}
-            await cmap.load(new_cmap);
-            this.update_data_layer(layer_name);
-        }
-        select_control.addEventListener("change", cb);
-        min_control.addEventListener("input", cb);
-        max_control.addEventListener("input", cb);
-    }
-
-    create_open_callback(index) {
-        // create a callback to open a particular scene in the overlay view
-        return async (evt) => {
-            this.current_index = index;
-            this.grid_container.style.display = "none";
-            this.overlay_container.style.display = "block";
-            this.update_time_range();
-            await this.show();
-        }
-    }
-
-    get_layer_group(layer_name) {
-        for(let group in this.scenes.layer_groups) {
-            if (this.scenes.layer_groups[group].includes(layer_name)) {
-                return group;
-            }
-        }
-        return "";
     }
 
     async init() {
@@ -773,6 +539,240 @@ class HtmlView {
                 }
             }
         });
+    }
+
+    /**
+     * Provide a standard string representation of dates
+     *
+     * @param {Date} dt a javascript date
+     *
+     * @returns {string} in format YYYY-MM-DD
+     */
+    date_to_string(dt) {
+        // return YYY-MM-DD formatted string from Date
+        let day = dt.getUTCDate();
+        let month = dt.getUTCMonth() + 1;
+        let year = dt.getFullYear();
+        let s = String(year) + "-" + String(month).padStart(2, '0') + "-" + String(day).padStart(2, '0');
+        return s;
+    }
+
+    /**
+     * Parse a string
+     *
+     * @param s a string in format YYYY-MM-DD
+     *
+     * @returns {Date} a javascript Date object parsed from the string
+     */
+    string_to_date(s) {
+        // parse YYYY-MM-DD formatted string to Date
+        let day = Number.parseInt(s.slice(8, 10));
+        let month = Number.parseInt(s.slice(5, 7));
+        let year = Number.parseInt(s.slice(0, 4));
+        return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    }
+
+    select_grid_date(updated_date) {
+        let min_diff = null;
+        let min_index = null;
+        let updated_dt = this.string_to_date(updated_date);
+        for (let idx = 0; idx < this.scenes.index.length; idx++) {
+            let item = this.scenes.index[idx];
+            let item_dt = this.string_to_date(item.timestamp);
+            let diff = Math.abs(item_dt - updated_dt);
+            if (min_diff === null || diff < min_diff) {
+                min_diff = diff;
+                min_index = idx;
+            }
+        }
+        if (min_index !== null) {
+            this.select_grid_index(min_index);
+        }
+    }
+
+    select_grid_index(new_index) {
+        let pos = this.scenes.index[new_index].pos;
+        let row_id = `row${pos}`;
+        let previous_current_page = this.current_page;
+        this.current_page = 0;
+        while(new_index >= (this.current_page*this.page_size + this.page_size)) {
+            this.current_page += 1;
+        }
+        if (this.current_page !== previous_current_page) {
+            this.show_page();
+        }
+        let row_elt = document.getElementById(row_id);
+        if (row_elt) {
+            row_elt.scrollIntoView();
+        }
+    }
+
+    select_overlay_date(updated_date) {
+        let min_diff = null;
+        let min_index = null;
+        let updated_dt = this.string_to_date(updated_date);
+        for (let idx = 0; idx < this.index.length; idx++) {
+            let item = this.index[idx];
+            let item_dt = this.string_to_date(item.timestamp);
+            let diff = Math.abs(item_dt - updated_dt);
+            if (min_diff === null || diff < min_diff) {
+                min_diff = diff;
+                min_index = item.pos;
+            }
+        }
+        if (min_index !== null) {
+            this.current_index = min_index;
+            this.update_time_range();
+            this.show().then(() => {});
+        }
+    }
+
+    prev_page() {
+        if (this.current_page > 0) {
+            this.current_page -= 1;
+            this.show_page();
+        }
+    }
+
+    next_page() {
+        if (this.current_page < this.max_page) {
+            this.current_page += 1;
+            this.show_page();
+        }
+    }
+
+    show_page() {
+        let page_start = this.current_page * this.page_size;
+        let page_end = ((this.current_page+1) * this.page_size)-1;
+        for(let idx=0; idx < this.scenes.index.length; idx++) {
+            let row = document.getElementById(`row${idx}`);
+            if (idx >= page_start && idx <= page_end) {
+                row.style.display = 'table-row';
+            } else {
+                row.style.display = 'none';
+            }
+        }
+        this.page_label.innerText = `(${this.current_page+1}/${this.max_page+1})`;
+        this.update_page_range();
+    }
+
+    update_page_size() {
+        this.page_size = Number.parseInt(this.page_size_control.value);
+        this.calculate_max_page();
+    }
+
+    update_page_range() {
+        if (this.max_page == 0) {
+            this.page_range.value = "50";
+        } else {
+            this.page_range.value = String(100 * (this.current_page / this.max_page));
+        }
+    }
+
+    calculate_max_page() {
+        let nr_scenes = this.scenes.index.length;
+        this.max_page = Math.ceil(nr_scenes/this.page_size)-1;
+        if (this.current_page > this.max_page) {
+            this.current_page = this.max_page;
+            this.show_page();
+        }
+    }
+
+    cache_image(image_id, image_url) {
+        this.image_url_cache[image_id] = image_url;
+        this.cached_image_ids.push(image_id);
+        if (this.cached_image_ids.length > this.image_url_cache_size) {
+            delete this.image_url_cache[this.cached_image_ids.splice(0,1)];
+        }
+    }
+
+    intersection_callback(entries) {
+        entries.forEach((entry) => {
+            let target = entry.target;
+            if (target.hasAttribute("load_url")) {
+                if (entry.isIntersecting) {
+                    // image is now visible
+                    if (target.hasAttribute("load_url")) {
+                        let url = target.getAttribute("src");
+                        if (url === "") {
+                            let img_id = target.id;
+                            if (img_id in this.image_url_cache) {
+                                target.setAttribute("src",this.image_url_cache[img_id]);
+                            } else {
+                                this.image_fetcher.submit(img_id);
+                            }
+                        }
+                    }
+                } else {
+                    // image is no longer visible
+                    target.src = "";
+                }
+            }
+        });
+    }
+
+    handle_map_mouseover(y_frac, x_frac) {
+        let data_content = document.getElementById("data_content");
+        if (data_content) {
+            let html = "<p>No Data</p>";
+            if (this.di && y_frac !== null && x_frac !== null) {
+                html = this.di.get_popup_html(y_frac, x_frac)
+            }
+            data_content.innerHTML = html;
+        }
+    }
+
+    async load_timeseries() {
+        if (this.timeseries_charts === null) {
+            this.timeseries_charts = {};
+            let r = await fetch("timeseries.json");
+            let timeseries = await r.json();
+            if (timeseries) {
+                timeseries.forEach(o => {
+                    let name = o["name"];
+                    let csv_url = o["csv_url"];
+                    let spec = o["spec"];
+                    let div_id = o["div_id"];
+                    let chart = new TimeseriesChart(div_id, csv_url, spec);
+                    this.timeseries_charts[name] = chart;
+                });
+            }
+        }
+    }
+
+    create_custom_cmap_callback(layer_name, select_control, min_control, max_control) {
+        // create a callback to be called when a cmap is changed in the overlay view
+        let cb = async (evt) => {
+            let new_min = Number.parseFloat(min_control.value);
+            let new_max = Number.parseFloat(max_control.value);
+            let new_cmap = select_control.value;
+            this.data_layers[layer_name] = {"cmap": new_cmap, "vmin": new_min, "vmax": new_max}
+            await cmap.load(new_cmap);
+            this.update_data_layer(layer_name);
+        }
+        select_control.addEventListener("change", cb);
+        min_control.addEventListener("input", cb);
+        max_control.addEventListener("input", cb);
+    }
+
+    create_open_callback(index) {
+        // create a callback to open a particular scene in the overlay view
+        return async (evt) => {
+            this.current_index = index;
+            this.grid_container.style.display = "none";
+            this.overlay_container.style.display = "block";
+            this.update_time_range();
+            await this.show();
+        }
+    }
+
+    get_layer_group(layer_name) {
+        for(let group in this.scenes.layer_groups) {
+            if (this.scenes.layer_groups[group].includes(layer_name)) {
+                return group;
+            }
+        }
+        return "";
     }
 
     show_group_column(layer_name) {
