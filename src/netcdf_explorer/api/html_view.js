@@ -1090,8 +1090,9 @@ class HtmlView {
 
     async open_terrain_view() {
         this.show_container(this.terrain_container);
-        let elevation_layer = this.scenes["terrain_view"]["elevation_layer"] || this.scenes["terrain_view"]["elevation_band"];
-        let pixel_size = this.scenes["terrain_view"]["pixel_size_in_terrain_units"];
+        // HTMLGenerator.check_terrain_spec writes these settings, whichever names the configuration used
+        let elevation_layer = this.scenes["terrain_view"]["elevation_layer"];
+        let pixel_size = this.scenes["terrain_view"]["pixel_size_in_elevation_units"];
         let image_url = await this.get_overlay_combined_image();
         let zoom = 1;
         if (this.terrain_zoom) {

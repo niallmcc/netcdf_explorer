@@ -227,6 +227,14 @@ class LayerBase(LayerCommon):
         """Return an error message if band_name is not in ds, otherwise record whether it varies from case to case."""
         if band_name not in ds:
             return f"No variable {band_name}"
+        # apart from the case dimension, selected dimensions and any of length 1 (which get_data removes),
+        # the variable can only have the layer's x and y dimensions
+        dims = ds[band_name].dims
+        other_dims = [dim for dim in dims if dim != self.case_dimension and dim not in self.selectors
+                      and ds.sizes[dim] > 1 and dim not in (self.x_dimension, self.y_dimension)]
+        if other_dims:
+            return (f"Variable {band_name} has dimensions ({', '.join(dims)}) but the layer's x and y dimensions "
+                    f"are {self.x_dimension} and {self.y_dimension}")
         if self.case_dimension and self.case_dimension in ds[band_name].dims:
             self.set_case_wise(True)
         return None
