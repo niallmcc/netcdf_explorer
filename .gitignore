@@ -132,7 +132,5 @@ dmypy.json
 .idea
 
 # test output files
-test/netcdf_explorer_tests/area_293_output_api/
-test/netcdf_explorer_tests/area_293_output_cli/
-test/netcdf_explorer_tests/area_293_min*.png
+test/netcdf_explorer_tests/test_output_html/
 

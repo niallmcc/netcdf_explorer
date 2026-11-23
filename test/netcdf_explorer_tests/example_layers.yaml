@@ -4,16 +4,16 @@
 
 dimensions:
   case: time
-  x: x
-  y: y
+  x: ni
+  y: nj
 
 # specify the names of the coordinates used in the time, x and y dimensions
 # note that all these coordinates must be 1-dimensional
 # the x- and y-coordinates must define a regular grid
 
 coordinates:
-  x: x
-  y: y
+  x: lon
+  y: lat
   time: time
 
 image:
@@ -94,6 +94,24 @@ layers:
       label: "B10_ST: {value} K"
       fixed: 2
 
+  ST_coarse:
+    label: "Surface Temperature (Coarse)"
+    type: "single"
+    band: "ST_coarse" # use the ST_coarse variable in the input dataset
+    min_value: 270 # specify the range of values to be depicted
+    max_value: 300
+    cmap: "rainbow"  # specify a colour map, known to matplotlib (see https://matplotlib.org/stable/users/explain/colors/colormaps.html)
+    data:
+      label: "B10_ST: {value} K"
+      fixed: 2
+    dimensions:
+      x: ni2
+      y: nj2
+
+    coordinates:
+      x: lon_coarse
+      y: lat_coarse
+
   DISCRETE_ST:
     label: "Surface Temperature Discrete"
     type: "discrete"
@@ -124,9 +142,18 @@ layers:
     scale: 1  # increase this to request a larger, more detailed WMS image
       # specify a WMS provider URL that should include placeholders {WIDTH}, {HEIGHT}, {XMIN}, {YMIN}, {XMAX}, {YMAX}
       # note that the URL should specify the correct CRS for the projection used in the variable's x and y coordinates
-    url: "https://eocis.org/mapproxy/service?service=WMS&request=GetMap&layers=osm&styles=&format=image%2Fpng&transparent=false&version=1.1.1&width={WIDTH}&height={HEIGHT}&srs=EPSG%3A27700&bbox={XMIN},{YMIN},{XMAX},{YMAX}"
+    url: "https://ows.terrestris.de/osm/service?SERVICE=WMS&VERSION=1.1.1&request=GetMap&layers=OSM-WMS&styles=&format=image%2Fpng&transparent=false&version=1.1.1&width={WIDTH}&height={HEIGHT}&srs=EPSG%3A4326&bbox={XMIN},{YMIN},{XMAX},{YMAX}"
+
+  Copernicus_DEM:
+    type: single
+    band: Copernicus_DEM
+    min_value: 0
+    max_value: 600
+    cmap: Greys
+    data:
+      "label": "Elevation: {value} m"
+      "fixed": 0
 
 terrain_view:
-  # normally the terrain view would use digital elevation data, for illustrative purposes we can use surface temperature
-  based_on_layer: ST
-  pixel_size_in_elevation_units: 5
+  based_on_layer: Copernicus_DEM
+  pixel_size_in_elevation_units: 50
