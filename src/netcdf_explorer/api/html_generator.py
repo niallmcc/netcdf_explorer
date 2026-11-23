@@ -253,6 +253,9 @@ class HTMLGenerator:
     def create_timeseries(self, config):
         """Check each timeseries in the configuration, keeping only variables and masks found in the input data.
 
+        Raises ConfigError if a mask is neither a variable in the input data nor a band in derive_bands. A mask that
+        is a derived band which could not be evaluated is left out, as the evaluation error has been logged.
+
         Returns a list of (timeseries_name, timeseries_spec, timeseries_detail) tuples.
         """
         timeseries_definitions = []
@@ -280,6 +283,10 @@ class HTMLGenerator:
                 for mask_name in timeseries_spec.get("masks",[]):
                     if mask_name in self.input_ds:
                         valid_masks.append(mask_name)
+                    elif mask_name not in self.derive_bands:
+                        raise ConfigError(f"timeseries '{timeseries_name}' mask '{mask_name}' is not a variable in the "
+                                          f"input data or a band in derive_bands")
+                    # otherwise the mask is a derived band that could not be evaluated, which has been logged
                 if len(valid_masks) == 0:
                     self.logger.warning(f"Unable to add timeseries {timeseries_name}, no valid masks")
                     continue
@@ -865,14 +872,11 @@ class HTMLGenerator:
             column_ids += ["info"]
             columns_hidden += [False]
 
-        groups = set()
         for layer_definition in grid_layers:
             group = layer_definition.get_group()
             column_ids.append(layer_definition.layer_name + "_col")
-            # if this column is one of a group and not the first, hide it initially
-            columns_hidden.append(bool(group and group in groups))
-            if group:
-                groups.add(group)
+            # if this column is one of a group and not the group's first layer, hide it initially
+            columns_hidden.append(bool(group and group.get_layers()[0] is not layer_definition))
 
         tf.set_column_ids(column_ids, columns_hidden)
 
@@ -996,13 +1000,10 @@ class HTMLGenerator:
         slider_container.add_element("input", {"type": "button", "id": "close_all_sliders", "value": "Hide All Layers"})
         slider_table = slider_container.add_element("table", {"id": "slider_controls"})
 
-        groups = set()
         for layer_definition in self.flatten_layers(self.layer_definitions, only_overlay_view=True):
             group = layer_definition.get_group()
             # only the first layer of a group is shown initially
-            hidden = bool(group and group in groups)
-            if group:
-                groups.add(group)
+            hidden = bool(group and group.get_layers()[0] is not layer_definition)
             self.build_layer_control_row(slider_table, layer_definition, hidden)
 
     def build_layer_control_row(self, slider_table, layer_definition, hidden):
