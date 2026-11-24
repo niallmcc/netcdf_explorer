@@ -207,7 +207,6 @@ class HTMLGenerator:
         self.y_coordinate = coordinates.get("y", "")
         self.time_coordinate = coordinates.get("time", "")
 
-        self.max_zoom = image.get("max-zoom", None)
         self.grid_image_width = image.get("grid-width", None)
 
         self.info = config.get("info",{})

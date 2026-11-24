@@ -100,7 +100,6 @@ image:
 | Setting | Description |
 |---|---|
 | `grid-width` | The width, in pixels, of each image in the grid view. The height is set to keep the data's aspect ratio. Without this setting, images are shown at the data's own width. |
-| `max-zoom` | Accepted, but not currently used. |
 
 ## info
 
