@@ -8,6 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
+import unittest.mock
 
 import numpy as np
 import xarray as xr
@@ -16,6 +17,7 @@ from PIL import Image
 
 import netcdf_explorer.api.bigplot
 from netcdf_explorer.api.config_error import ConfigError
+from netcdf_explorer.api.data_encoder import DataEncoder
 from netcdf_explorer.api.expr_parser import ExpressionParser
 from netcdf_explorer.api.html_generator import HTMLGenerator
 from netcdf_explorer.api.layers import LayerFactory
@@ -375,6 +377,24 @@ class TestLayerDimensions(unittest.TestCase):
         self.assertEqual(scenes["layer_groups"], {"ST": ["ST_fine"]})
         self.assertTrue(any("ST_coarse" in message and "(time, nj, ni)" in message and "ni2" in message
                             for message in logs.output), logs.output)
+
+
+class TestDataEncoder(unittest.TestCase):
+
+    def test_same_array_always_writes_the_same_bytes(self):
+        arr = np.arange(12, dtype="float64").reshape(3, 4) / 7
+        with tempfile.TemporaryDirectory() as tmp:
+            contents = []
+            # encode at two different times: the gzip header would normally record the time of compression
+            for (i, now) in enumerate([1_000_000_000, 1_700_000_000]):
+                path = os.path.join(tmp, f"{i}.gz")
+                with unittest.mock.patch("time.time", return_value=now):
+                    DataEncoder.encode(arr, path)
+                with open(path, "rb") as f:
+                    contents.append(f.read())
+                np.testing.assert_array_equal(read_data_file(path), arr.astype("float32"))
+        self.assertEqual(contents[0], contents[1])
+        self.assertEqual(contents[0][4:8], b"\0\0\0\0", "the gzip header's timestamp should be 0")
 
 
 class TestTerrainView(unittest.TestCase):
