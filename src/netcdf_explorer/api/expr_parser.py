@@ -38,7 +38,8 @@ class ExpressionParser:
         # lexer state
         self.index = 0
         self.tokens = []
-        self.current_token_type = None # s_string, d_string, string, name, operator, number, open_parenthesis, close_parenthesis, comma
+        # one of: s_string, d_string, string, name, operator, number, open_parenthesis, close_parenthesis, comma
+        self.current_token_type = None
         self.current_token_start = 0
         self.current_token = None
 
@@ -414,8 +415,8 @@ class ExpressionParser:
             i -= 1
 
 
-        # check that args are correctly formed, with operators in every second location, ie "e op e op e" and all operators
-        # are binary operators with no arguments already assigned
+        # check that args are correctly formed, with operators in every second location, ie "e op e op e" and all
+        # operators are binary operators with no arguments already assigned
         for i in range(len(args)):
             arg = args[i]
             if i % 2 == 1:

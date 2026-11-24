@@ -43,7 +43,8 @@ def save_image(arr,vmin,vmax,path,cmap_name="coolwarm"):
     im = Image.fromarray(np.uint8((255*cmap_fn((arr-vmin)/(vmax-vmin)))))
     im.save(path)
 
-def save_image_falsecolour(data_red, data_green, data_blue, path, min_value=None, max_value=None, low_percentile=None, high_percentile=None, red_gamma=0.5, green_gamma=0.5, blue_gamma=0.5):
+def save_image_falsecolour(data_red, data_green, data_blue, path, min_value=None, max_value=None, low_percentile=None,
+                           high_percentile=None, red_gamma=0.5, green_gamma=0.5, blue_gamma=0.5):
     alist = []
 
     combined = np.concatenate((data_red,data_green,data_blue))
@@ -272,8 +273,9 @@ class LayerBase(LayerCommon):
 
 class LayerRGB(LayerBase):
 
-    def __init__(self, layer, converter, layer_name, layer_label, selectors, red_variable, green_variable, blue_variable,
-                 red_gamma=0.5, green_gamma=0.5, blue_gamma=0.5, min_value=None, max_value=None, low_percentile=None, high_percentile=None):
+    def __init__(self, layer, converter, layer_name, layer_label, selectors, red_variable, green_variable,
+                 blue_variable, red_gamma=0.5, green_gamma=0.5, blue_gamma=0.5, min_value=None, max_value=None,
+                 low_percentile=None, high_percentile=None):
         super().__init__(layer, converter, layer_name, layer_label, selectors)
         self.red_variable = red_variable
         self.green_variable = green_variable
@@ -529,7 +531,8 @@ class LayerFactory:
                                                    ("coordinates", "{x: lon, y: lat}", "time coordinate")]:
             values = layer.get(setting, {})
             if not isinstance(values, dict):
-                raise ConfigError(f"layer '{layer_name}' setting '{setting}' should be a mapping, for example {example}")
+                raise ConfigError(f"layer '{layer_name}' setting '{setting}' should be a mapping, "
+                                  f"for example {example}")
             for key in values:
                 if key not in ("x", "y"):
                     raise ConfigError(f"layer '{layer_name}' cannot set {setting} '{key}', a layer can only set its "
@@ -568,7 +571,8 @@ class LayerFactory:
         vmax = require(layer, "max_value", "layer", layer_name)
         cmap = layer.get("cmap", "coolwarm")
         if not hasattr(cm, cmap):
-            raise ConfigError(f"layer '{layer_name}' has unknown cmap '{cmap}', should be the name of a matplotlib colour map")
+            raise ConfigError(f"layer '{layer_name}' has unknown cmap '{cmap}', "
+                              f"should be the name of a matplotlib colour map")
         data = layer.get("data", None)
         return LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap, data)
 

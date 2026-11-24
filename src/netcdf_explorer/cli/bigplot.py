@@ -31,23 +31,30 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-path", nargs="+", help="path matching one or more netcdf input file(s)", required=True)
-    parser.add_argument("--input-variable", help="name of variable(s) to plot.  Supply either one variable or three variables (red,green,blue)", nargs="+", required=True)
+    parser.add_argument("--input-variable", nargs="+", required=True,
+                        help="name of variable(s) to plot.  "
+                             "Supply either one variable or three variables (red,green,blue)")
     parser.add_argument("--x", help="name of x dimension", default="x")
     parser.add_argument("--y", help="name of y dimension", default="y")
-    parser.add_argument("--selector", nargs=3, help="provide a coordinate selector", metavar=("coordinate","min","max"), action="append")
-    parser.add_argument("--iselector", nargs=3, help="provide a dimension selector", metavar=("dimension", "min", "max"),
+    parser.add_argument("--selector", nargs=3, help="provide a coordinate selector", metavar=("coordinate","min","max"),
                         action="append")
+    parser.add_argument("--iselector", nargs=3, help="provide a dimension selector",
+                        metavar=("dimension", "min", "max"), action="append")
     parser.add_argument("--flip", help="whether to flip the image upside down", action="store_true")
     parser.add_argument("--vmin", type=float, help="minimum input variable value to use in colour scale", default=0)
     parser.add_argument("--vmax", type=float, help="maximum input variable value to use in colour scale", default=1)
     parser.add_argument("--vformat", help="format to use when printing values", default="%0.0f")
-    parser.add_argument("--cmap", help="colour scale to use, should be the  name of a matplotlib color map", default="turbo")
+    parser.add_argument("--cmap", help="colour scale to use, should be the  name of a matplotlib color map",
+                        default="turbo")
 
-    parser.add_argument("--cchart", metavar="PATH", help="path to a JSON format {<value>:<colour>} colour chart mapping nominal values to colours, overrides --cmap if specified", default=None)
+    parser.add_argument("--cchart", metavar="PATH", default=None,
+                        help="path to a JSON format {<value>:<colour>} colour chart mapping nominal values to colours, "
+                             "overrides --cmap if specified")
     parser.add_argument("--legend-width", help="width of the legend in pixels", type=int, default=100)
     parser.add_argument("--legend-height", help="height of the legend in pixels", type=int, default=50)
 
-    parser.add_argument("--gamma", metavar="COEFFICIENT", help="coefficient to use for gamma correction in rgb plots", default=0.5)
+    parser.add_argument("--gamma", metavar="COEFFICIENT", help="coefficient to use for gamma correction in rgb plots",
+                        default=0.5)
 
     parser.add_argument("--title", help="A title for the plot")
     parser.add_argument("--title-height", help="Height of title in pixels", type=int, default=50)
@@ -124,7 +131,8 @@ def main():
 
             if len(args.input_variable) > 1:
                 if len(args.input_variable) == 3:
-                    da = xr.concat([ds[args.input_variable[0]],ds[args.input_variable[1]],ds[args.input_variable[2]]],dim="rgb")
+                    da = xr.concat([ds[args.input_variable[0]], ds[args.input_variable[1]],
+                                    ds[args.input_variable[2]]], dim="rgb")
                     args.legend_height = 0 # this will turn off the legend
                 else:
                     logger.error("Please specify either 1 or 3 input variables")

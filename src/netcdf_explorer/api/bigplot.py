@@ -54,8 +54,10 @@ class CMap:
 
 class BigPlot:
 
-    def __init__(self, data_array, x="x", y="y", vmin=0, vmax=1, vformat="%02f", cmap_name="viridis", title="",  output_path="output.png", subtexts=None, legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
-                 subtheight=25, selectors=None, iselectors=None, font_path=None, border=20,  cchart=None, gamma=0.5):
+    def __init__(self, data_array, x="x", y="y", vmin=0, vmax=1, vformat="%02f", cmap_name="viridis", title="",
+                 output_path="output.png", subtexts=None, legend_width=300, legend_height=50, plot_width=1800,
+                 flip=True, theight=50, subtheight=25, selectors=None, iselectors=None, font_path=None, border=20,
+                 cchart=None, gamma=0.5):
         self.logger = logging.getLogger("BigPlot")
         self.data_array:xr.DataArray = data_array
         self.x = x
@@ -79,7 +81,8 @@ class BigPlot:
         self.gamma = gamma
         self.selectors = selectors if selectors is not None else {}
         self.iselectors = iselectors if iselectors is not None else {}
-        self.font_path = font_path if font_path else os.path.join(os.path.split(__file__)[0],"..","misc","Roboto-Black.ttf")
+        self.font_path = (font_path if font_path
+                          else os.path.join(os.path.split(__file__)[0], "..", "misc", "Roboto-Black.ttf"))
         self.border = border
         if "rgb" not in self.data_array.dims:
             cmap_path = os.path.join(os.path.split(__file__)[0], "..", "misc", "cmaps", self.cmap_name + ".json")
@@ -187,8 +190,10 @@ class BigPlot:
             min_label = self.vformat % self.vmin
             max_label = self.vformat % self.vmax
 
-            draw.text((round(combined_width * 0.5 - self.legend_width * 0.5) - 20, y), min_label, fill=(0,0,0), font=legendfont, anchor="rt")
-            draw.text((round(combined_width * 0.5 + self.legend_width * 0.5) + 20, y), max_label, fill=(0,0,0), font=legendfont, anchor="lt")
+            draw.text((round(combined_width * 0.5 - self.legend_width * 0.5) - 20, y), min_label, fill=(0,0,0),
+                      font=legendfont, anchor="rt")
+            draw.text((round(combined_width * 0.5 + self.legend_width * 0.5) + 20, y), max_label, fill=(0,0,0),
+                      font=legendfont, anchor="lt")
             y += self.legend_height+spacing
 
         if self.subtexts:

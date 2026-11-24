@@ -24,7 +24,7 @@ def prepare_attrs(d):
     return {k:str(v) for (k,v) in d.items() if v is not None}
 
 anti_aliasing_style = """
-img { 
+img {
     image-rendering: optimizeSpeed;             /* STOP SMOOTHING, GIVE ME SPEED  */
     image-rendering: -moz-crisp-edges;          /* Firefox                        */
     image-rendering: -o-crisp-edges;            /* Opera                          */

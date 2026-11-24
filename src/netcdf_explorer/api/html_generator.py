@@ -254,7 +254,9 @@ class HTMLGenerator:
         """Check each timeseries in the configuration, keeping only variables and masks found in the input data.
 
         A variable that is not in the input data is left out with a warning, and a timeseries with none of its
-        variables left is dropped with a warning, in the same way as a layer whose variable is missing. Raises ConfigError if a mask is neither a variable in the input data nor a band in derive_bands. A mask that
+        variables left is dropped with a warning, in the same way as a layer whose variable is missing.
+
+        Raises ConfigError if a mask is neither a variable in the input data nor a band in derive_bands. A mask that
         is a derived band which could not be evaluated is left out, as the evaluation error has been logged.
 
         Returns a list of (timeseries_name, timeseries_spec, timeseries_detail) tuples.
@@ -313,7 +315,8 @@ class HTMLGenerator:
             if not os.path.exists(download_link_path):
                 os.symlink(self.input_path, download_link_path)
             else:
-                self.logger.warning(f"Download path {download_link_path} already exists, unable to create new download link.  Data will not be linked in output.")
+                self.logger.warning(f"Download path {download_link_path} already exists, unable to create new "
+                                    f"download link.  Data will not be linked in output.")
                 self.download_filename = ""
 
         for folder in ["images", "data", "cmaps"]:
@@ -392,14 +395,16 @@ class HTMLGenerator:
         for variable in variables:
             variable_components = variable.split(":")
             if len(variable_components) > 1 and variable_components[1] not in AGGREGATION_FUNCTIONS:
-                raise ConfigError(f"timeseries '{timeseries_name}' variable '{variable}' uses unknown aggregation function "
-                                  f"'{variable_components[1]}', should be one of: {', '.join(AGGREGATION_FUNCTIONS)}")
+                raise ConfigError(f"timeseries '{timeseries_name}' variable '{variable}' uses unknown aggregation "
+                                  f"function '{variable_components[1]}', "
+                                  f"should be one of: {', '.join(AGGREGATION_FUNCTIONS)}")
         timeseries_type = timeseries_spec.get("type", "timeseries")
         if timeseries_type not in TIMESERIES_TYPES:
             raise ConfigError(f"timeseries '{timeseries_name}' has unknown type '{timeseries_type}', "
                               f"should be one of: {', '.join(TIMESERIES_TYPES)}")
         if timeseries_type == "seasonal" and len(variables) != 1:
-            raise ConfigError(f"timeseries '{timeseries_name}' is seasonal, so it needs exactly 1 variable, got {len(variables)}")
+            raise ConfigError(f"timeseries '{timeseries_name}' is seasonal, so it needs exactly 1 variable, "
+                              f"got {len(variables)}")
 
     def build_derived_bands(self):
         for (band_name, band_expression) in self.derive_bands.items():
@@ -424,7 +429,8 @@ class HTMLGenerator:
 
     @staticmethod
     def check_expression(band_name, parsed_expression):
-        """Raise ConfigError if a parsed expression calls an unknown function or passes the wrong number of arguments."""
+        """Raise ConfigError if a parsed expression calls an unknown function or passes the wrong number of
+        arguments."""
         if "function" in parsed_expression:
             function = parsed_expression["function"]
             if function.lower() not in EXPRESSION_FUNCTIONS:
@@ -438,7 +444,10 @@ class HTMLGenerator:
             HTMLGenerator.check_expression(band_name, arg)
 
     def evaluate_expression(self, parsed_expression, from_bands_accumulator):
-        """Evaluate an expression checked by check_expression, adding the names of the bands it reads to from_bands_accumulator."""
+        """Evaluate an expression checked by check_expression.
+
+        Adds the names of the bands it reads to from_bands_accumulator.
+        """
         if "name" in parsed_expression:
             source_band = parsed_expression["name"]
             if source_band not in self.input_ds:
@@ -529,7 +538,8 @@ class HTMLGenerator:
         tf = TableFragment(attrs={"class":"info_table"},style={"width":"%dpx"%self.grid_image_width})
         for (key,value) in d.items():
             tf.add_row([key,value])
-        ef = ElementFragment("button", attrs={"class": "info_table"},style={"max-height":"%dpx"%self.grid_image_width}).add_fragment(tf)
+        ef = ElementFragment("button", attrs={"class": "info_table"},
+                             style={"max-height": "%dpx" % self.grid_image_width}).add_fragment(tf)
         return ef
 
     def generate_info_dict(self, index, ds):
@@ -681,8 +691,10 @@ class HTMLGenerator:
         builder.head().add_element("style").add_text(anti_aliasing_style)
         builder.head().add_element("script", {"src": "index.js"})
         builder.head().add_element("link", {"rel": "stylesheet", "href": "index.css"})
-        builder.head().add_element("link", {"rel": "stylesheet", "href":"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
-                                            "integrity":"sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=", "crossorigin":""})
+        builder.head().add_element("link", {"rel": "stylesheet",
+                                            "href": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+                                            "integrity": "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=",
+                                            "crossorigin": ""})
         builder.head().add_element("script", {"src":"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
                                               "integrity":"sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=",
                                               "crossorigin":""})
@@ -690,7 +702,8 @@ class HTMLGenerator:
         # dygraphs
         if self.timeseries:
             builder.head().add_element("script", {"type": "text/javascript", "src":"dependencies/dygraph.js"})
-            builder.head().add_element("link", {"type": "text/css", "rel":"stylesheet", "href": "dependencies/dygraph.css"})
+            builder.head().add_element("link", {"type": "text/css", "rel": "stylesheet",
+                                                "href": "dependencies/dygraph.css"})
 
         # babylonJS
         if self.terrain_view:
@@ -707,7 +720,8 @@ class HTMLGenerator:
                                                               {"id": "overlay_container", "style": "display:none;"})
             grid_container_div = container_div.add_element("div", {"id": "grid_container", "style": "display:none;"})
             self.build_overlay_view(overlay_container_div, builder, image_width, image_height)
-            self.build_grid_view(grid_container_div, builder, image_width, image_height, display_timeseries=display_timeseries)
+            self.build_grid_view(grid_container_div, builder, image_width, image_height,
+                                 display_timeseries=display_timeseries)
 
         if display_timeseries:
             timeseries_container_div = container_div.add_element("div", {"id": "timeseries_container",
@@ -716,7 +730,8 @@ class HTMLGenerator:
             self.build_timeseries_view(timeseries_container_div, builder)
 
         if self.terrain_view:
-            terrain_container_div = container_div.add_element("div", {"id": "terrain_container", "style":"display:none;"})
+            terrain_container_div = container_div.add_element("div", {"id": "terrain_container",
+                                                                      "style": "display:none;"})
             self.build_terrain_view(terrain_container_div, builder)
 
         if image_width:
@@ -732,14 +747,16 @@ class HTMLGenerator:
             scenes["terrain_view"] = self.terrain_view
 
         for layer_definition in self.page_order_layers():
-            layer_dict = {"name": layer_definition.layer_name, "label": layer_definition.layer_label, "has_data": layer_definition.save_data()}
+            layer_dict = {"name": layer_definition.layer_name, "label": layer_definition.layer_label,
+                          "has_data": layer_definition.save_data()}
             if isinstance(layer_definition,LayerWMS):
                 layer_dict["wms_url"] = layer_definition.wms_url
             if isinstance(layer_definition,LayerDiscrete):
                 layer_dict["classes"] = {}
                 for (k,v) in layer_definition.values.items():
                     (label,colour) = v
-                    layer_dict["classes"][k] = { "label": label, "colour": ColoursToRGB.to_hex(ColoursToRGB.lookup(colour)) }
+                    layer_dict["classes"][k] = {"label": label,
+                                                "colour": ColoursToRGB.to_hex(ColoursToRGB.lookup(colour))}
             scenes["layers"].append(layer_dict)
 
         for layer_definition in self.page_order_layers()[::-1]:
@@ -861,7 +878,8 @@ class HTMLGenerator:
         grid_container_div.add_element("input", {"type": "range", "id": "page_index"})
         grid_container_div.add_element("button", {"id": "next_page_btn"}).add_text("Next Page")
         grid_container_div.add_element("span", {"id": "page_label"}).add_text("1/1")
-        grid_container_div.add_element("input", {"id":"page_size", "type": "number", "value":"10", "min":"1", "step":"1"}).add_text("Page Size")
+        grid_container_div.add_element("input", {"id": "page_size", "type": "number", "value": "10", "min": "1",
+                                                 "step": "1"}).add_text("Page Size")
 
     def build_grid_table(self, image_width, image_height):
         """Build the grid view's table: one column per layer and one row per case."""
@@ -986,7 +1004,8 @@ class HTMLGenerator:
         self.add_spacer(overlay_container_div)
 
         if self.filter_controls:
-            overlay_container_div.add_element("input", {"type": "button", "id": "show_filters", "value":"Filter Controls"})
+            overlay_container_div.add_element("input", {"type": "button", "id": "show_filters",
+                                                        "value": "Filter Controls"})
 
         if self.info:
             overlay_container_div.add_element("input", {"type": "button", "id": "show_info", "value":"Show Info"})
@@ -1033,7 +1052,8 @@ class HTMLGenerator:
                 col3.add_element("input",{"type":"number","value":str(layer_definition.vmin),"id":layer_definition.layer_name+"_min_input"})
             else:
                 col3.add_element("span").add_text(str(layer_definition.vmin))
-            col4.add_element("img", {"src": legend_src, "class": "legend", "id":layer_definition.layer_name+"_legend_img"})
+            col4.add_element("img", {"src": legend_src, "class": "legend",
+                                     "id": layer_definition.layer_name + "_legend_img"})
             if layer_has_data:
                 col5.add_element("input", {"type": "number", "value": str(layer_definition.vmax),
                                            "id": layer_definition.layer_name + "_max_input"})
@@ -1053,7 +1073,8 @@ class HTMLGenerator:
 
     def build_filter_controls(self, overlay_container_div):
         """Build the Scene Filters panel, with a checkbox for each month."""
-        filter_div = self.add_control_panel(overlay_container_div, "filter_container", "Scene Filters", "close_filter_btn")
+        filter_div = self.add_control_panel(overlay_container_div, "filter_container", "Scene Filters",
+                                            "close_filter_btn")
 
         filter_fieldset = filter_div.add_element("fieldset", style={"display": "inline"})
         filter_fieldset.add_element("legend").add_text("Filters")
@@ -1083,7 +1104,8 @@ class HTMLGenerator:
                     self.write_timeseries_rows(writer, data, column_names)
                 elif timeseries_type == "seasonal":
                     if len(column_names) != 1:
-                        raise ConfigError(f"timeseries '{timeseries_name}' is seasonal, so it needs exactly 1 variable, got {len(column_names)}")
+                        raise ConfigError(f"timeseries '{timeseries_name}' is seasonal, so it needs exactly 1 "
+                                          f"variable, got {len(column_names)}")
                     self.write_seasonal_rows(writer, data, years, column_names[0])
 
             timeseries_detail["csv_url"] = os.path.join("timeseries", timeseries_name + ".csv")
@@ -1194,7 +1216,8 @@ class HTMLGenerator:
 
     def build_timeseries_view(self, timeseries_container_div, builder):
         if self.layer_definitions:
-            timeseries_container_div.add_element("input", {"type": "button", "id": "grid_view_btn2", "value": "Show Grid View"})
+            timeseries_container_div.add_element("input", {"type": "button", "id": "grid_view_btn2",
+                                                           "value": "Show Grid View"})
 
         timeseries_container_div.add_element("span").add_text(self.title)
 
@@ -1214,10 +1237,12 @@ class HTMLGenerator:
             timeseries_detail["div_id"] = timeseries_div_id
 
     def build_terrain_view(self, terrain_container_div, builder):
-        terrain_container_div.add_element("input", {"id": "exit_terrain_view", "type":"button", "value":"Exit Terrain View"})
+        terrain_container_div.add_element("input", {"id": "exit_terrain_view", "type": "button",
+                                                    "value": "Exit Terrain View"})
         terrain_container_div.add_element("span", {"class": "spacer"}).add_text("|")
         terrain_container_div.add_element("label", attrs={"for": "terrain_zoom"}).add_text("Exaggerate Terrain")
-        terrain_container_div.add_element("input", {"id":"terrain_zoom", "step":"0.1", "type": "range", "min": "1", "max": "10", "value":"1"})
+        terrain_container_div.add_element("input", {"id": "terrain_zoom", "step": "0.1", "type": "range", "min": "1",
+                                                    "max": "10", "value": "1"})
         terrain_container_div.add_element("span", {"id": "terrain_zoom_value"}).add_text("1")
         terrain_container_div.add_element("p")
         terrain_container_div.add_element("canvas",{"id": "render_canvas"})

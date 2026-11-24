@@ -33,8 +33,8 @@ from PIL import Image
 
 class Thumbnail:
 
-    def __init__(self, variable, cmap, vmin, vmax, x_coord, y_coord, plot_width, background_image_path=None, background_alpha=0.2,
-                 selector=None):
+    def __init__(self, variable, cmap, vmin, vmax, x_coord, y_coord, plot_width, background_image_path=None,
+                 background_alpha=0.2, selector=None):
         self.variable = variable
         self.background_image_path = background_image_path
         self.background_alpha = background_alpha
@@ -132,8 +132,8 @@ def main():
     parser.add_argument("--cmap", help="colour scale to use, should be the  name of a matplotlib color map",
                         default="turbo")
 
-    parser.add_argument("--background-image-path", help="optional - path to a background image onto which the plot is overlaid",
-                        default=None)
+    parser.add_argument("--background-image-path", default=None,
+                        help="optional - path to a background image onto which the plot is overlaid")
 
 
     parser.add_argument("--background-image-alpha", help="optional - alpha transparency for the background image",
