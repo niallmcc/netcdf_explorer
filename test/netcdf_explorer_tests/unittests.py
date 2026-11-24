@@ -186,16 +186,16 @@ class Test(unittest.TestCase):
         output_path = os.path.join(self.output_dir, "greenland_cmdline.png")
         run_cli("netcdf_explorer.cli.bigplot",
                 ["--input-path", INPUT_PATH, "--iselector", "time", "1", "1", "--input-variable", "B2", "B3", "B4",
-                 "--x", "ni", "--y", "nj", "--output-path", output_path, "--title", "greenland", "--vmin", "0", "--vmax", "0.3",
-                 "--plot-width", "512"], cwd=self.output_dir)
+                 "--x", "ni", "--y", "nj", "--output-path", output_path, "--title", "greenland",
+                 "--vmin", "0", "--vmax", "0.3", "--plot-width", "512"], cwd=self.output_dir)
         self.check_bigplot_image(output_path, plot_width=512)
 
     def test_bigplot_commandline_st(self):
         output_path = os.path.join(self.output_dir, "greenland_cmdline_st.png")
         run_cli("netcdf_explorer.cli.bigplot",
                 ["--input-path", INPUT_PATH, "--iselector", "time", "1", "1", "--input-variable", "ST",
-                 "--x", "ni", "--y", "nj", "--output-path", output_path, "--title", "greenland_st", "--vmin", "270", "--vmax", "330",
-                 "--cmap", "viridis", "--plot-width", "512"], cwd=self.output_dir)
+                 "--x", "ni", "--y", "nj", "--output-path", output_path, "--title", "greenland_st",
+                 "--vmin", "270", "--vmax", "330", "--cmap", "viridis", "--plot-width", "512"], cwd=self.output_dir)
         self.check_bigplot_image(output_path, plot_width=512)
 
     def test_bigplot_commandline_fails_on_missing_input(self):
@@ -319,7 +319,8 @@ class TestLayerDimensions(unittest.TestCase):
                      "coordinates": {"x": "lon_rev", "y": "lat_rev"}},
             # ST_coarse in the input data is ST averaged over 4x4 blocks of pixels, covering the same area
             "ST_coarse": {"type": "single", "min_value": 270, "max_value": 300, "data": {"label": "{value} K"},
-                          "dimensions": {"x": "ni2", "y": "nj2"}, "coordinates": {"x": "lon_coarse", "y": "lat_coarse"}},
+                          "dimensions": {"x": "ni2", "y": "nj2"},
+                          "coordinates": {"x": "lon_coarse", "y": "lat_coarse"}},
         }
         config = {"dimensions": {"case": "time", "x": "ni", "y": "nj"},
                   "coordinates": {"x": "lon", "y": "lat", "time": "time"}, "layers": layers}
@@ -380,7 +381,8 @@ class TestTerrainView(unittest.TestCase):
 
     def make_config(self, terrain_view, dem_layer=None):
         dem_layer = dem_layer if dem_layer is not None else {
-            "type": "single", "band": "Copernicus_DEM", "min_value": 0, "max_value": 600, "data": {"label": "{value} m"}}
+            "type": "single", "band": "Copernicus_DEM", "min_value": 0, "max_value": 600,
+            "data": {"label": "{value} m"}}
         return {"dimensions": {"case": "time", "x": "ni", "y": "nj"},
                 "coordinates": {"x": "lon", "y": "lat", "time": "time"},
                 "layers": {"ST": {"type": "single", "min_value": 270, "max_value": 300}, "DEM": dem_layer},

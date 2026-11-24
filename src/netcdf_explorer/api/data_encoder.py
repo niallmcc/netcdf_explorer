@@ -24,7 +24,11 @@ class DataEncoder:
 
     @staticmethod
     def encode(arr, path):
+        """Write a 2D array to path as gzipped bytes: an int32 height and width, then the values as float32.
+
+        The gzip header's timestamp is set to 0, so encoding the same array always writes the same bytes.
+        """
         with open(path,"wb") as f:
             height, width = arr.shape
             dim_arr = np.array([height,width],dtype="<i4")
-            f.write(gzip.compress(dim_arr.tobytes()+arr.astype("<f4").tobytes()))
+            f.write(gzip.compress(dim_arr.tobytes()+arr.astype("<f4").tobytes(), mtime=0))
