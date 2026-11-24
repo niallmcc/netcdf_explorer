@@ -50,7 +50,8 @@ Open the file `output_folder_with_html/index.html` in your browser to explore th
 
 You will need to define a YAML file which maps variables in the input dataset to layers in the generated visualisations
 
-This [commented example configuration file](test/netcdf_explorer_tests/example_layers.yaml) should explain how the configuration file works
+See the [configuration file guide](docs/configuration.md) for every setting. This
+[commented example configuration file](test/netcdf_explorer_tests/example_layers.yaml) is a good starting point.
 
 ### common command line options
 
