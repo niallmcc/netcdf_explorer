@@ -24,7 +24,6 @@ It builds a page from the test dataset [greenland.nc](../test/netcdf_explorer_te
   - [wms](#wms)
   - [layer_group](#layer_group)
   - [static_image](#static_image)
-  - [vector](#vector)
   - [Colours](#colours)
 - [timeseries](#timeseries)
 - [terrain_view](#terrain_view)
@@ -177,7 +176,6 @@ shows:
 | [`wms`](#wms) | A background map fetched from a WMS server. |
 | [`layer_group`](#layer_group) | Several layers, one shown at a time, with a selector to choose which. |
 | [`static_image`](#static_image) | An image file, the same for every case. |
-| [`vector`](#vector) | Lines drawn from a JSON description stored in a variable. |
 
 Layers are shown in the order they are listed. In the grid view, each layer is a column. In the overlay view,
 layers listed first are drawn on top.
@@ -396,31 +394,6 @@ An existing image file, shown the same for every case and stretched over the map
 | Setting | Description |
 |---|---|
 | `image_path` | (required) The path of the image file, relative to the folder `generate_html` is run from. |
-
-### vector
-
-Lines drawn over the map. The variable must hold, for each case, a JSON string: a list of lines, each a list of
-`[y, x]` pixel positions. `x` counts columns from the left (west) edge and `y` counts rows from the bottom
-(south) edge, both from 0.
-
-```yaml
-  TRACKS:
-    label: Tracks
-    type: vector
-    band: tracks
-    thickness: 2
-    colour: [255, 0, 0, 255]
-```
-
-For example, the value `[[[0, 0], [10, 20]]]` draws one line from the bottom-left pixel to the pixel 20 columns
-across and 10 rows up.
-
-| Setting | Default | Description |
-|---|---|---|
-| `band` | the layer's name | The variable holding the JSON. |
-| `scale` | `10` | How many times larger than the data the image is drawn, for smoother lines. |
-| `thickness` | `3` | The line width, in pixels of the scaled image. |
-| `colour` | `[0, 0, 0, 255]` | The line colour as `[red, green, blue, alpha]`, each 0 to 255. |
 
 ### Colours
 
