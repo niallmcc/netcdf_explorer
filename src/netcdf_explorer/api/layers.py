@@ -24,9 +24,8 @@ import math
 import os
 import shutil
 import requests
-import json
 
-from PIL import Image, ImageDraw
+from PIL import Image
 from matplotlib import cm
 import numpy as np
 import xarray as xr
@@ -350,53 +349,6 @@ class LayerSingleBand(LayerBase):
         de.encode(self.get_data(ds[self.band_name]), path)
         return self.data
 
-class LayerVector(LayerBase):
-
-    def __init__(self, layer, converter, layer_name, layer_label, selectors, band_name, scale, thickness, colour):
-        super().__init__(layer, converter, layer_name, layer_label, selectors)
-        self.band_name = band_name
-        self.scale = scale
-        self.thickness = thickness
-        self.colour = colour
-
-    def check(self, ds):
-        err = super().check(ds)
-        if err:
-            return err
-        return self.check_band(ds, self.band_name)
-
-    def build(self,ds,path):
-        s = ds[self.band_name].item()
-        vectors = json.loads(s)
-
-        image_width, image_height = self.converter.get_image_dimensions(ds)
-
-        image_width *= self.scale
-        image_height *= self.scale
-
-        im = Image.new('RGBA', (image_width, image_height), (255, 255, 255, 0))
-        draw = ImageDraw.Draw(im)
-
-        def swap_xy(v):
-            return [((x+0.5)*self.scale,image_height-(y+0.5)*self.scale) for (y,x) in v]
-
-        for vector in vectors:
-            draw.line(swap_xy(vector), fill=tuple(self.colour), width=self.thickness)
-        im.save(path)
-
-    def has_legend(self):
-        return False
-
-    def build_legend(self, path):
-        pass
-
-    def save_data(self):
-        return False
-
-    def build_data(self,ds,path):
-        pass
-
-
 class LayerWMS(LayerBase):
 
     def __init__(self, layer, converter, layer_name, layer_label, wms_url, scale):
@@ -612,13 +564,6 @@ class LayerFactory:
         return LayerWMS(layer, converter, layer_name, layer_label, url, layer.get("scale", 1))
 
     @staticmethod
-    def create_vector(converter, layer_name, layer_label, selectors, layer, in_layer_group):
-        layer_band = layer.get("band", layer_name)
-        return LayerVector(layer, converter, layer_name, layer_label, selectors, layer_band,
-                           scale=layer.get("scale", 10), thickness=layer.get("thickness", 3),
-                           colour=layer.get("colour",[0,0,0,255]))
-
-    @staticmethod
     def create_static_image(converter, layer_name, layer_label, selectors, layer, in_layer_group):
         image_path = require(layer, "image_path", "layer", layer_name)
         return LayerStaticImage(layer, converter, layer_name, layer_label, selectors, image_path)
@@ -645,7 +590,6 @@ LayerFactory.CREATORS = {
     "rgb": LayerFactory.create_rgb,
     "discrete": LayerFactory.create_discrete,
     "wms": LayerFactory.create_wms,
-    "vector": LayerFactory.create_vector,
     "static_image": LayerFactory.create_static_image,
     "layer_group": LayerFactory.create_layer_group,
 }

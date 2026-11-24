@@ -207,7 +207,6 @@ class HTMLGenerator:
         self.y_coordinate = coordinates.get("y", "")
         self.time_coordinate = coordinates.get("time", "")
 
-        self.max_zoom = image.get("max-zoom", None)
         self.grid_image_width = image.get("grid-width", None)
 
         self.info = config.get("info",{})
@@ -533,13 +532,14 @@ class HTMLGenerator:
         else:
             raise Exception("Unable to determine image dimensions from dataset")
 
-    def generate_info_table(self, index, ds):
+    def generate_info_table(self, index, ds, width):
+        """Build the grid view's info cell for a case, width pixels wide, the same as the grid images."""
         d = self.generate_info_dict(index, ds)
-        tf = TableFragment(attrs={"class":"info_table"},style={"width":"%dpx"%self.grid_image_width})
+        tf = TableFragment(attrs={"class":"info_table"},style={"width":"%dpx" % width})
         for (key,value) in d.items():
             tf.add_row([key,value])
         ef = ElementFragment("button", attrs={"class": "info_table"},
-                             style={"max-height": "%dpx" % self.grid_image_width}).add_fragment(tf)
+                             style={"max-height": "%dpx" % width}).add_fragment(tf)
         return ef
 
     def generate_info_dict(self, index, ds):
@@ -923,7 +923,7 @@ class HTMLGenerator:
         for (row, (index, timestamp, layer_sources, _, ds)) in enumerate(self.layer_images):
             cells = [self.generate_index_cell(row)]
             if self.info:
-                cells += [self.generate_info_table(index,ds)]
+                cells += [self.generate_info_table(index,ds,width)]
 
             for layer_definition in grid_layers:
                 img = ImageFragment("", layer_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
